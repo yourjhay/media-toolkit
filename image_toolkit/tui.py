@@ -144,6 +144,13 @@ def _gradient_line(line: str) -> Text:
     return text
 
 
+def _pause(message: str = "  Press any key to return to the menu…") -> None:
+    try:
+        questionary.press_any_key_to_continue(message, style=STYLE).ask()
+    except Exception:
+        pass  # never let a cosmetic pause break a completed run
+
+
 def _banner() -> None:
     width = console.width
     *art, byline = banner_lines(width)
@@ -632,7 +639,7 @@ def _run(files: list[Path], operation) -> Summary:
     return summary
 
 
-def _report(summary: Summary) -> None:
+def _report(summary: Summary, dest_dir: Path | None = None) -> None:
     counts = summary.counts
     table = Table(box=None, padding=(0, 2))
     table.add_column("Outcome")
@@ -644,10 +651,27 @@ def _report(summary: Summary) -> None:
     table.add_row(f"[bold]{label}[/bold]", f"[bold]{value}[/bold]")
     console.print(table)
 
+    written = summary.written
+    if written and dest_dir is not None:
+        console.print()
+        noun = "file" if len(written) == 1 else "files"
+        console.print(f"  Saved {len(written)} {noun} to")
+        console.print(f"  [bold]{dest_dir}[/bold]")
+
+    # Every non-success gets its reason spelled out. A bare "skipped 1" leaves
+    # the user with no idea why nothing happened.
+    skipped = summary.of_status(SKIPPED)
+    for result in skipped:
+        console.print(f"  [dim]·[/dim] {result.source.name}: {result.detail}")
+    if skipped:
+        console.print(
+            "  [dim]Nothing was overwritten. Answer yes to “Overwrite files already "
+            "in the output folder?”, or pick an empty output folder.[/dim]"
+        )
     for result in summary.of_status(SHORT):
-        console.print(f"[yellow]·[/yellow] {result.source.name}: {result.detail}")
+        console.print(f"  [yellow]·[/yellow] {result.source.name}: {result.detail}")
     for result in summary.of_status(FAILED):
-        console.print(f"[red]·[/red] {result.source.name}: {result.detail}")
+        console.print(f"  [red]·[/red] {result.source.name}: {result.detail}")
 
 
 def _one_round() -> bool:
@@ -703,8 +727,11 @@ def _one_round() -> bool:
         return True
 
     summary = _run(files, make_operation(operation, dest_dir, outputs=outputs, **options))
-    _report(summary)
+    _report(summary, dest_dir)
     console.print()
+    # The menu is twenty lines tall and redraws immediately; without this the
+    # summary scrolls away before it can be read.
+    _pause()
     return True
 
 

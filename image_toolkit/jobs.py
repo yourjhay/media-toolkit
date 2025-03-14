@@ -7,7 +7,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
-from .core import FAILED, Result
+from .core import FAILED, OK, SHORT, Result
 
 Operation = Callable[[Path], Result]
 ProgressHook = Callable[[Result], None]
@@ -27,6 +27,11 @@ class Summary:
 
     def of_status(self, status: str) -> list[Result]:
         return [r for r in self.results if r.status == status]
+
+    @property
+    def written(self) -> list[Result]:
+        """The results that actually put a file on disk."""
+        return [r for r in self.results if r.status in (OK, SHORT) and r.output is not None]
 
 
 def run_batch(

@@ -79,3 +79,25 @@ def test_empty_input_yields_an_empty_summary():
     assert summary.results == []
     assert summary.bytes_saved == 0
     assert summary.counts == {}
+
+
+def test_written_lists_only_the_files_that_reached_disk():
+    """Used to tell the user where output landed, so it must not lie."""
+    summary = run_batch(
+        [Path("a.jpg"), Path("b.jpg"), Path("c.jpg"), Path("d.jpg")],
+        lambda p: _result(p.name, {"a.jpg": OK, "b.jpg": SHORT, "c.jpg": SKIPPED, "d.jpg": FAILED}[p.name]),
+    )
+
+    assert [r.source.name for r in summary.written] == ["a.jpg", "b.jpg"]
+
+
+def test_written_is_empty_when_everything_was_skipped():
+    summary = run_batch([Path("a.jpg")], lambda p: _result(p.name, SKIPPED))
+
+    assert summary.written == []
+
+
+def test_a_failed_result_with_no_output_is_not_counted_as_written():
+    summary = run_batch([Path("a.jpg")], lambda p: Result(Path("a.jpg"), None, FAILED))
+
+    assert summary.written == []
