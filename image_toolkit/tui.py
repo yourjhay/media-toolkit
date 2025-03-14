@@ -9,8 +9,13 @@ from __future__ import annotations
 from pathlib import Path
 
 import questionary
+from prompt_toolkit.application import Application
 from prompt_toolkit.application.current import get_app
 from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.layout import HSplit, Layout, Window
+from prompt_toolkit.layout.controls import FormattedTextControl
+from prompt_toolkit.layout.dimension import Dimension
 from questionary import Choice
 from rich.console import Console
 from rich.panel import Panel
@@ -30,6 +35,7 @@ from .discovery import find_images
 from .estimate import QUALITY_ANCHORS, build_quality_model, compress_target
 from .info import FileInfo, FolderInfo, inspect_source
 from .jobs import Summary, run_batch
+from .menu import columns_for, next_index, render_grid
 from .planning import (
     OPERATIONS,
     QUIT,
@@ -39,9 +45,10 @@ from .planning import (
     extensions_for,
     format_estimate,
     human_bytes,
-    median_by_size,
     make_operation,
-    operation_choices,
+    median_by_size,
+    menu_items,
+    output_name,
     size_change_row,
 )
 
@@ -144,12 +151,110 @@ def _banner() -> None:
     console.print()
 
 
+CARD_LINES_PER_ROW = 5  # four card lines plus the gap beneath
+
+
 def _choose_operation() -> str:
-    return _ask(
-        questionary.select(
-            "What would you like to do?", choices=operation_choices(), style=STYLE
-        )
+    """A grid of cards, driven by the arrow keys or a number.
+
+    questionary only draws a vertical list, so this is a small prompt_toolkit
+    application of its own. All the geometry lives in `menu`.
+    """
+    items = menu_items()
+    state = {"selected": 0}
+
+    def terminal_width() -> int:
+        return get_app().output.get_size().columns
+
+    def grid():
+        fragments: list[tuple[str, str]] = []
+        for line in render_grid(items, state["selected"], terminal_width()):
+            fragments.extend(line)
+            fragments.append(("", "\n"))
+        return fragments[:-1]
+
+    def grid_height() -> Dimension:
+        rows = -(-len(items) // columns_for(terminal_width()))
+        return Dimension.exact(rows * CARD_LINES_PER_ROW - 1)
+
+    bindings = KeyBindings()
+
+    for key, direction in (
+        ("left", "left"),
+        ("right", "right"),
+        ("up", "up"),
+        ("down", "down"),
+    ):
+        @bindings.add(key)
+        def _(event, direction=direction) -> None:
+            state["selected"] = next_index(
+                state["selected"],
+                direction,
+                count=len(items),
+                columns=columns_for(terminal_width()),
+            )
+
+    @bindings.add("tab")
+    def _(event) -> None:
+        state["selected"] = (state["selected"] + 1) % len(items)
+
+    @bindings.add("s-tab")
+    def _(event) -> None:
+        state["selected"] = (state["selected"] - 1) % len(items)
+
+    for position in range(len(items)):
+        @bindings.add(str(position + 1))
+        def _(event, position=position) -> None:
+            state["selected"] = position
+            event.app.exit(result=items[position].key)
+
+    @bindings.add("enter")
+    def _(event) -> None:
+        event.app.exit(result=items[state["selected"]].key)
+
+    @bindings.add("c-c")
+    @bindings.add("escape")
+    def _(event) -> None:
+        event.app.exit(result=None)
+
+    application = Application(
+        layout=Layout(
+            HSplit(
+                [
+                    Window(
+                        FormattedTextControl(
+                            lambda: [("bold", "  What would you like to do?")]
+                        ),
+                        height=Dimension.exact(2),
+                    ),
+                    Window(FormattedTextControl(grid), height=grid_height),
+                    Window(
+                        FormattedTextControl(
+                            lambda: [
+                                (
+                                    "fg:#6e7681",
+                                    "\n  ↑ ↓ ← → move    1-4 jump straight there"
+                                    "    enter select    esc quit",
+                                )
+                            ]
+                        ),
+                        height=Dimension.exact(2),
+                    ),
+                ]
+            )
+        ),
+        key_bindings=bindings,
+        full_screen=False,
+        erase_when_done=True,
     )
+
+    chosen = application.run()
+    if chosen is None:
+        raise Cancelled
+
+    picked = next(item for item in items if item.key == chosen)
+    console.print(f"[#00b894]?[/#00b894] [bold]Operation:[/bold] [#0984e3]{picked.title}[/#0984e3]")
+    return chosen
 
 
 def _ask_path(message: str, default: str | None = None) -> Path:

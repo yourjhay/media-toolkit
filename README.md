@@ -49,6 +49,28 @@ will not claim it hit a number it missed. Output is never larger than the
 input; if re-encoding would inflate a file, the original bytes are copied
 instead.
 
+## The menu
+
+Operations are cards in a grid, two per row, each in its own colour:
+
+```
+┏━ 1 ━━━━━━━━━━━━━━━━━━━━┓   ╭─ 2 ────────────────────╮
+┃ HEIC / HEIF            ┃   │ JPG / PNG              │
+┃ → JPG or PNG           ┃   │ → WebP                 │
+┗━━━━━━━━━━━━━━━━━━━━━━━━┛   ╰────────────────────────╯
+
+╭─ 3 ────────────────────╮   ╭─ 4 ────────────────────╮
+│ Compress               │   │ Quit                   │
+│ shrink to a target size│   │ leave the toolkit      │
+╰────────────────────────╯   ╰────────────────────────╯
+```
+
+Arrow keys move, `1`-`4` jump straight to a card and run it, enter selects,
+escape quits. The selected card is drawn with a heavy border as well as a
+brighter colour, so the selection is still visible over SSH, in a pipe, or in
+any terminal without truecolour. Below about 55 columns the grid drops to a
+single column.
+
 ## Bulk
 
 Point it at a folder instead of a file and it works on everything inside:

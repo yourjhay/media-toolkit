@@ -72,20 +72,15 @@ def test_unknown_operation_is_rejected(tmp_path):
         make_operation("nonsense", tmp_path)
 
 
-def test_quit_choice_has_a_real_value_not_none():
-    """questionary substitutes the title when a Choice value is None.
+def test_quit_card_carries_a_real_sentinel_value():
+    """Guards the old bug where a None-valued entry came back as "Quit"."""
+    from image_toolkit.planning import QUIT, menu_items
 
-    A None-valued quit entry therefore comes back as the string "Quit",
-    silently failing any `is None` check and dropping the user into the
-    next prompt instead of exiting.
-    """
-    from image_toolkit.planning import QUIT, operation_choices
+    quit_cards = [item for item in menu_items() if item.title == "Quit"]
 
-    quit_entries = [c for c in operation_choices() if c.title == "Quit"]
-
-    assert len(quit_entries) == 1
-    assert quit_entries[0].value == QUIT
-    assert quit_entries[0].value is not None
+    assert len(quit_cards) == 1
+    assert quit_cards[0].key == QUIT
+    assert quit_cards[0].key is not None
 
 
 def test_quit_sentinel_cannot_collide_with_an_operation():
@@ -95,11 +90,23 @@ def test_quit_sentinel_cannot_collide_with_an_operation():
 
 
 def test_menu_offers_every_operation_then_quit():
-    from image_toolkit.planning import QUIT, operation_choices
+    from image_toolkit.planning import QUIT, menu_items
 
-    values = [c.value for c in operation_choices()]
+    assert [item.key for item in menu_items()] == list(OPERATIONS) + [QUIT]
 
-    assert values == list(OPERATIONS) + [QUIT]
+
+def test_every_card_has_its_own_colour():
+    from image_toolkit.planning import menu_items
+
+    colors = [item.color for item in menu_items()]
+
+    assert len(set(colors)) == len(colors)
+
+
+def test_every_card_has_a_title():
+    from image_toolkit.planning import menu_items
+
+    assert all(item.title for item in menu_items())
 
 
 def test_tab_completion_trailing_space_is_stripped():

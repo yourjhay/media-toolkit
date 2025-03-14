@@ -11,11 +11,11 @@ from functools import partial
 from pathlib import Path
 from typing import Callable
 
-from questionary import Choice
 
 from .core import compress, convert_heic, convert_to_webp
 from .discovery import HEIC_EXTS, RASTER_EXTS
 from .jobs import Operation
+from .menu import MenuItem
 
 OUTPUT_DIRNAME = "converted"
 
@@ -99,10 +99,13 @@ def make_operation(
     return run
 
 
-def operation_choices() -> list[Choice]:
-    """The main menu: every operation, then quit."""
-    return [Choice(title=label, value=key) for key, label in OPERATIONS.items()] + [
-        Choice(title="Quit", value=QUIT)
+def menu_items() -> list[MenuItem]:
+    """The main menu as cards: every operation, then quit."""
+    return [
+        MenuItem("heic", "HEIC / HEIF", "→ JPG or PNG", "#00d6aa"),
+        MenuItem("webp", "JPG / PNG", "→ WebP", "#4aa8ff"),
+        MenuItem("compress", "Compress", "shrink to a target size", "#f0a02a"),
+        MenuItem(QUIT, "Quit", "leave the toolkit", "#8b949e"),
     ]
 
 
