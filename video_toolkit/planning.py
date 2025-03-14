@@ -32,8 +32,12 @@ SIZE_PRESETS = (
     ("100 MB", 100 * 1024 * 1024),
 )
 
+# 4K and 1440p are listed even though "best available" would reach them
+# anyway: a menu that stops at 1080p reads as a tool that stops there too.
 QUALITY_PRESETS = (
     ("Best available", None),
+    ("Up to 2160p  (4K)", 2160),
+    ("Up to 1440p  (2K)", 1440),
     ("Up to 1080p", 1080),
     ("Up to 720p", 720),
     ("Up to 480p", 480),

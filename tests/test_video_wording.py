@@ -68,3 +68,39 @@ def test_the_size_presets_climb():
 
     sizes = [size for _, size in SIZE_PRESETS]
     assert sizes == sorted(sizes)
+
+
+def test_the_quality_presets_reach_4k():
+    """4K works, but a menu stopping at 1080p implies it does not."""
+    from video_toolkit.planning import QUALITY_PRESETS
+
+    heights = [h for _, h in QUALITY_PRESETS if h is not None]
+    assert 2160 in heights
+
+
+def test_the_presets_descend_from_best_to_smallest():
+    from video_toolkit.planning import QUALITY_PRESETS
+
+    assert QUALITY_PRESETS[0][1] is None, "best available should lead"
+    heights = [h for _, h in QUALITY_PRESETS if h is not None]
+    assert heights == sorted(heights, reverse=True)
+
+
+def test_every_preset_is_labelled_with_its_resolution():
+    from video_toolkit.planning import QUALITY_PRESETS
+
+    for label, height in QUALITY_PRESETS:
+        if height is not None:
+            assert str(height) in label
+
+
+def test_a_capped_preset_produces_a_capped_selector():
+    from video_toolkit.formats import VIDEO, format_selector
+    from video_toolkit.planning import QUALITY_PRESETS
+
+    for _, height in QUALITY_PRESETS:
+        selector = format_selector(mode=VIDEO, ffmpeg=True, max_height=height)
+        if height is None:
+            assert "height" not in selector
+        else:
+            assert str(height) in selector
