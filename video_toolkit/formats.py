@@ -9,6 +9,10 @@ from __future__ import annotations
 
 from shared.format import human_bytes
 
+MP3 = "mp3"
+M4A = "m4a"
+AUDIO_CODECS = (MP3, M4A)
+
 VIDEO = "video"
 AUDIO = "audio"
 MODES = (VIDEO, AUDIO)
@@ -98,3 +102,21 @@ def readable_formats(info: dict) -> list[dict[str, str]]:
         reverse=True,
     )
     return [describe_format(fmt) for fmt in ordered]
+
+
+def audio_postprocessors(convert_to: str | None, quality: str = "192") -> list[dict]:
+    """The ffmpeg step that turns a downloaded stream into a chosen codec.
+
+    YouTube's best audio is usually opus in a webm container. Playable, but
+    not what most people expect from an audio file, so converting is offered.
+    Requires ffmpeg; without it there is nothing to convert with.
+    """
+    if convert_to is None:
+        return []
+    if convert_to not in AUDIO_CODECS:
+        raise ValueError(f"codec must be one of {AUDIO_CODECS}, got {convert_to!r}")
+    return [{
+        "key": "FFmpegExtractAudio",
+        "preferredcodec": convert_to,
+        "preferredquality": quality,
+    }]

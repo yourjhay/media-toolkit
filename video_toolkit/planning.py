@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from shared.menu import MenuItem
 
+from .formats import AUDIO, MODES, VIDEO
+
 QUIT = "__quit__"
 
 OPERATIONS: dict[str, str] = {
@@ -30,3 +32,18 @@ def menu_items() -> list[MenuItem]:
         MenuItem("formats", "List formats", "see what is on offer", "#c77dff"),
         MenuItem(QUIT, "Quit", "leave the toolkit", "#8b949e"),
     ]
+
+
+_NOUNS = {VIDEO: ("video", "videos"), AUDIO: ("audio track", "audio tracks")}
+
+
+def download_noun(mode: str, count: int) -> str:
+    """How to describe what is about to be fetched.
+
+    Audio mode discards the picture entirely, so calling the result a video
+    describes the source rather than what the user ends up with.
+    """
+    if mode not in MODES:
+        raise ValueError(f"mode must be one of {MODES}, got {mode!r}")
+    singular, plural = _NOUNS[mode]
+    return f"{count} {singular if count == 1 else plural}"

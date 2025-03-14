@@ -29,6 +29,23 @@ Paste a link and it looks the video up first, showing the title, uploader and
 length before anything is downloaded. A playlist link says how many videos it
 holds and asks before starting.
 
+### Audio downloads come out as webm
+
+Sites commonly serve their best audio as **opus in a webm container**. It
+plays fine, but it is not what most people expect an audio file to be, so
+audio downloads offer to convert:
+
+```
+? Convert to MP3?                  Yes
+? Keep the original file as well?  No
+```
+
+Conversion happens in the same pass as the download, not afterwards, so there
+is one wait rather than two. Answering no to the second question deletes the
+downloaded webm once the MP3 exists; answering yes leaves both side by side.
+
+Both questions need ffmpeg. Without it the prompt is skipped and says so.
+
 ### ffmpeg
 
 Most sites serve anything above about 720p as **separate video and audio

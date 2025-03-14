@@ -24,8 +24,15 @@ from shared.prompts import ask_path as _shared_ask_path
 from shared.prompts import pause as _pause
 
 from .download import OK, download, ffmpeg_available, probe
-from .formats import AUDIO, VIDEO, quality_warning, readable_formats
-from .planning import OPERATIONS, QUALITY_PRESETS, QUIT, READ_ONLY, menu_items
+from .formats import AUDIO, MP3, VIDEO, quality_warning, readable_formats
+from .planning import (
+    OPERATIONS,
+    QUALITY_PRESETS,
+    QUIT,
+    READ_ONLY,
+    download_noun,
+    menu_items,
+)
 from .urls import clean_url
 
 console = Console()
@@ -81,7 +88,39 @@ def _formats_table(rows: list[dict]) -> None:
     console.print(f"  [dim]{len(rows)} formats.[/dim]\n")
 
 
-def _download_with_progress(url: str, dest_dir: Path, mode: str, max_height: int | None, ffmpeg: bool):
+def _ask_audio_conversion(ffmpeg: bool) -> tuple[str | None, bool]:
+    """Whether to convert the downloaded audio, and whether to keep the source.
+
+    Sites commonly serve their best audio as opus in a webm container. It
+    plays, but it is not what most people expect an audio file to be.
+    """
+    if not ffmpeg:
+        console.print(
+            "  [yellow]Converting needs ffmpeg, which is not installed. "
+            "Run  brew install ffmpeg  to enable it.[/yellow]\n"
+        )
+        return None, False
+
+    if not _ask(questionary.confirm("Convert to MP3?", default=True, style=STYLE)):
+        return None, False
+
+    keep = _ask(
+        questionary.confirm(
+            "Keep the original file as well?", default=False, style=STYLE
+        )
+    )
+    return MP3, keep
+
+
+def _download_with_progress(
+    url: str,
+    dest_dir: Path,
+    mode: str,
+    max_height: int | None,
+    ffmpeg: bool,
+    convert_to: str | None = None,
+    keep_original: bool = False,
+):
     with Progress(
         TextColumn("[progress.description]{task.description}"),
         BarColumn(),
@@ -99,11 +138,13 @@ def _download_with_progress(url: str, dest_dir: Path, mode: str, max_height: int
             else:
                 progress.update(task, rate=f"{human_bytes(update.downloaded)} {rate}")
             if update.finished:
-                progress.update(task, completed=100, description="Merging" if ffmpeg else "Done")
+                after = "Converting" if convert_to else ("Merging" if ffmpeg else "Done")
+                progress.update(task, completed=100, description=after)
 
         result = download(
-            url, dest_dir, mode=mode, max_height=max_height,
-            ffmpeg=ffmpeg, on_progress=on_progress,
+            url, dest_dir, mode=mode, max_height=max_height, ffmpeg=ffmpeg,
+            convert_to=convert_to, keep_original=keep_original,
+            on_progress=on_progress,
         )
         progress.update(task, completed=100, description="Done")
     return result
@@ -137,7 +178,10 @@ def _one_round() -> bool:
         return True
 
     mode = AUDIO if operation == "audio" else VIDEO
+    convert_to, keep_original = (None, False)
     max_height = None
+    if mode == AUDIO:
+        convert_to, keep_original = _ask_audio_conversion(ffmpeg)
     if mode == VIDEO:
         max_height = _ask(
             questionary.select(
@@ -150,16 +194,24 @@ def _one_round() -> bool:
     dest_dir = _shared_ask_path(console, "Save to:", default=str(Path.home() / "Downloads"))
 
     count = info.entries if info.is_playlist else 1
-    noun = "video" if count == 1 else "videos"
-    if not _ask(questionary.confirm(f"Download {count} {noun}?", default=True, style=STYLE)):
+    if not _ask(
+        questionary.confirm(
+            f"Download {download_noun(mode, count)}?", default=True, style=STYLE
+        )
+    ):
         console.print("[dim]Cancelled.[/dim]\n")
         return True
 
-    result = _download_with_progress(url, dest_dir, mode, max_height, ffmpeg)
+    result = _download_with_progress(
+        url, dest_dir, mode, max_height, ffmpeg, convert_to, keep_original
+    )
 
     if result.status == OK:
         console.print(f"\n  [green]Saved[/green]  {human_bytes(result.size_bytes)}")
-        console.print(f"  [bold]{result.path}[/bold]\n")
+        console.print(f"  [bold]{result.path}[/bold]")
+        if convert_to and keep_original:
+            console.print("  [dim]The original download was kept alongside it.[/dim]")
+        console.print()
     else:
         console.print(f"\n  [red]Failed.[/red]  [dim]{result.detail}[/dim]\n")
 

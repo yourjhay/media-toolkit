@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
-from .formats import VIDEO, format_selector
+from .formats import VIDEO, audio_postprocessors, format_selector
 
 OK = "ok"
 FAILED = "failed"
@@ -122,12 +122,38 @@ def probe(url: str, ydl_factory: Callable | None = None) -> VideoInfo:
     )
 
 
+def resolve_output(
+    info: dict,
+    written: list[str],
+    fallback: str,
+    convert_to: str | None,
+) -> Path:
+    """Where the file actually ended up.
+
+    Conversion replaces the downloaded file, so the name reported by the
+    download hook may already be gone by the time we look. yt-dlp records the
+    final path when it has one; otherwise the extension is swapped to match
+    what was asked for.
+    """
+    requested = info.get("requested_downloads") or []
+    for entry in reversed(requested):
+        if entry.get("filepath"):
+            return Path(entry["filepath"])
+
+    last = Path(written[-1]) if written else Path(fallback)
+    if convert_to and last.suffix.lstrip(".") != convert_to:
+        return last.with_suffix(f".{convert_to}")
+    return last
+
+
 def download(
     url: str,
     dest_dir: Path,
     mode: str = VIDEO,
     max_height: int | None = None,
     ffmpeg: bool | None = None,
+    convert_to: str | None = None,
+    keep_original: bool = False,
     on_progress: Callable[[ProgressUpdate], None] | None = None,
     ydl_factory: Callable | None = None,
 ) -> DownloadResult:
@@ -152,6 +178,9 @@ def download(
         "outtmpl": str(dest_dir / "%(title)s.%(ext)s"),
         "progress_hooks": [hook],
         "ignoreerrors": False,
+        "postprocessors": audio_postprocessors(convert_to),
+        # Whether the downloaded stream survives the conversion that replaces it.
+        "keepvideo": keep_original,
     }
 
     try:
@@ -162,7 +191,7 @@ def download(
     except Exception as exc:
         return DownloadResult(url=url, status=FAILED, detail=f"{type(exc).__name__}: {exc}")
 
-    path = Path(written[-1] if written else fallback)
+    path = resolve_output(info, written, fallback, convert_to)
     if not path.exists():
         return DownloadResult(
             url=url, status=FAILED, title=info.get("title"),
