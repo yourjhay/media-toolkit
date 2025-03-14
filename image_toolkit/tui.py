@@ -17,6 +17,7 @@ from prompt_toolkit.layout import HSplit, Layout, Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 from prompt_toolkit.layout.dimension import Dimension
 from questionary import Choice
+from rich import box
 from rich.console import Console
 from rich.panel import Panel
 from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
@@ -34,12 +35,14 @@ from .core import FAILED, KEEP, OK, SAFE, SHORT, SKIPPED, STRIP, probe_quality_s
 from .discovery import find_images
 from .estimate import QUALITY_ANCHORS, build_quality_model, compress_target
 from .info import FileInfo, FolderInfo, inspect_source
+from .metadata import FileMetadata, maps_link, pretty_datetime, read_metadata
 from .sizing import target_size
 from .jobs import Summary, run_batch
 from .menu import columns_for, next_index, render_grid
 from .planning import (
     OPERATIONS,
     QUIT,
+    READ_ONLY,
     assign_output_paths,
     clean_path_input,
     default_output_dir,
@@ -276,6 +279,103 @@ def _choose_source() -> Path:
         if source.exists():
             return source
         console.print(f"[red]No such path:[/red] {source}")
+
+
+ACCENT = "#ff8fa3"
+
+
+def _field_of(data: FileMetadata, label: str) -> str:
+    for item in data.fields:
+        if item.label == label:
+            return item.value
+    return ""
+
+
+def _metadata_detail(data: FileMetadata) -> None:
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_row("Size", human_bytes(data.size_bytes))
+    if data.dimensions:
+        width, height = data.dimensions
+        table.add_row("Image", f"{width} × {height}   {data.format}   {data.mode}")
+    if data.error:
+        table.add_row("Problem", f"[red]{data.error}[/red]")
+
+    if data.fields:
+        table.add_row("", "")
+        for item in data.fields:
+            value = pretty_datetime(item.value) if item.label == "Taken" else item.value
+            if item.sensitive:
+                table.add_row(f"[{ACCENT}]{item.label}[/{ACCENT}]", f"[{ACCENT}]{value}[/{ACCENT}]")
+            else:
+                table.add_row(item.label, value)
+    elif not data.error:
+        table.add_row("Metadata", "[dim]none recorded[/dim]")
+
+    console.print(Panel(table, title=data.name, border_style=ACCENT, title_align="left"))
+
+    if data.has_location:
+        link = maps_link(*data.coordinates)
+        console.print(f"  [{ACCENT}]This photo records where it was taken.[/{ACCENT}]")
+        # A terminal hyperlink: clicking opens the map where the terminal
+        # supports it, and reads as a plain URL where it does not.
+        console.print(f"  [dim][link={link}]{link}[/link][/dim]")
+        console.print(
+            "  [dim]Pick “Strip everything” under Photo metadata when converting, "
+            "before sharing it.[/dim]"
+        )
+    console.print()
+
+
+def _metadata_summary(readings: list[FileMetadata]) -> None:
+    table = Table(box=box.SIMPLE, header_style="bold", padding=(0, 1))
+    table.add_column("File")
+    table.add_column("Size", justify="right")
+    table.add_column("Pixels", justify="right")
+    table.add_column("Camera")
+    table.add_column("Taken")
+    table.add_column("Location")
+
+    for data in readings:
+        size = f"{data.dimensions[0]}×{data.dimensions[1]}" if data.dimensions else "—"
+        table.add_row(
+            data.name,
+            human_bytes(data.size_bytes),
+            size,
+            _field_of(data, "Camera") or "[dim]—[/dim]",
+            pretty_datetime(_field_of(data, "Taken")) or "[dim]—[/dim]",
+            f"[{ACCENT}]yes[/{ACCENT}]" if data.has_location else "[dim]no[/dim]",
+        )
+    console.print(table)
+
+    located = [d for d in readings if d.has_location]
+    if located:
+        console.print(
+            f"  [{ACCENT}]{len(located)} of {len(readings)} record where they were "
+            f"taken.[/{ACCENT}]"
+        )
+    else:
+        console.print("  [dim]None of these record a location.[/dim]")
+    console.print()
+
+
+def _show_metadata(files: list[Path]) -> None:
+    if len(files) == 1:
+        _metadata_detail(read_metadata(files[0]))
+        return
+
+    with console.status(f"[dim]Reading {len(files)} files…[/dim]", spinner="dots"):
+        readings = [read_metadata(path) for path in files]
+    _metadata_summary(readings)
+
+    while True:
+        choices = [Choice(data.name, index) for index, data in enumerate(readings)]
+        choices.append(Choice("Back to the menu", None))
+        picked = _ask(
+            questionary.select("Look at one in detail?", choices=choices, style=STYLE)
+        )
+        if picked is None:
+            return
+        _metadata_detail(readings[picked])
 
 
 def _source_panel(info: FileInfo | FolderInfo) -> Panel:
@@ -530,6 +630,14 @@ def _one_round() -> bool:
     recursive = False
     if source.is_dir():
         recursive = _ask(questionary.confirm("Include subfolders?", default=False, style=STYLE))
+
+    if operation in READ_ONLY:
+        files = find_images(source, extensions, recursive=recursive)
+        if not files:
+            console.print("[yellow]No matching images found there.[/yellow]\n")
+            return True
+        _show_metadata(files)
+        return True
 
     dest_dir = _ask_path("Output folder:", default=str(default_output_dir(source)))
 

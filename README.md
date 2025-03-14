@@ -1,11 +1,12 @@
 # image toolkit
 
-An interactive terminal tool for four jobs:
+An interactive terminal tool for five jobs:
 
 - **HEIC / HEIF → JPG or PNG** — iPhone photos into something everything can open
 - **JPG / PNG → WebP** — lossy or lossless, transparency preserved
 - **Resize JPG / PNG** — scale down to fit a box or a percentage
 - **Compress JPG / PNG** — shrink a file by a target percentage
+- **Read metadata** — see what a photo records about itself
 
 No GUI, no flags to memorise. Run it, answer the prompts with the arrow keys.
 
@@ -71,6 +72,45 @@ escape quits. The selected card is drawn with a heavy border as well as a
 brighter colour, so the selection is still visible over SSH, in a pipe, or in
 any terminal without truecolour. Below about 55 columns the grid drops to a
 single column.
+
+## Read metadata
+
+Point it at a photo and it shows what the file carries:
+
+```
+╭─ IMG_9001.jpg ──────────────────────────────────────────────╮
+│   Size        1.8 MB                                        │
+│   Image       4032 × 3024   JPEG   RGB                      │
+│                                                             │
+│   Camera      Apple iPhone 15 Pro                           │
+│   Lens        iPhone 15 Pro back camera 6.86mm f/1.78       │
+│   Exposure    1/120s   f/1.78   ISO 64   24mm               │
+│   Taken       2026-09-21 14:32                              │
+│   Software    17.5.1                                        │
+│   Location    14°35'30"N, 121°00'00"E                       │
+╰─────────────────────────────────────────────────────────────╯
+  This photo records where it was taken.
+  https://www.google.com/maps?q=14.591667,121.0
+```
+
+Location and serial number are highlighted, because those are the two fields
+that identify you rather than the picture. The map link is a terminal
+hyperlink, so it opens on a click in terminals that support that.
+
+Point it at a folder instead and you get one row per file, with a count of how
+many record a location, then the option to open any of them in full:
+
+```
+  File              Size     Pixels   Camera                Taken              Location
+  IMG_9001.jpg   64.1 KB   1200×900   Apple iPhone 15 Pro   2026-09-21 14:32   yes
+  chart.png      16.3 KB    800×600   —                     —                  no
+  plain.jpg      19.5 KB    640×480   —                     —                  no
+
+  1 of 3 record where they were taken.
+```
+
+This one only reads. It never asks for an output folder, never asks about
+overwriting, and writes nothing.
 
 ## Your photos know where you live
 

@@ -231,3 +231,41 @@ def test_sample_file_of_nothing_is_nothing():
     from image_toolkit.planning import median_by_size
 
     assert median_by_size([]) is None
+
+
+def test_the_reader_is_marked_read_only():
+    from image_toolkit.planning import READ_ONLY
+
+    assert "inspect" in READ_ONLY
+
+
+def test_no_read_only_operation_can_be_turned_into_a_writer():
+    """A read-only operation reaching make_operation would mean it writes."""
+    from image_toolkit.planning import READ_ONLY
+
+    for operation in READ_ONLY:
+        with pytest.raises(ValueError):
+            make_operation(operation, Path("/tmp/nowhere"))
+
+
+def test_a_read_only_operation_has_no_output_name():
+    from image_toolkit.planning import READ_ONLY, output_name
+
+    for operation in READ_ONLY:
+        with pytest.raises(ValueError):
+            output_name(operation, Path("photo.jpg"))
+
+
+def test_the_reader_accepts_every_image_type_the_toolkit_knows():
+    from image_toolkit.discovery import ALL_IMAGE_EXTS
+
+    assert extensions_for("inspect") == ALL_IMAGE_EXTS
+
+
+def test_every_writing_operation_still_has_a_function():
+    from image_toolkit.planning import READ_ONLY
+
+    for operation in OPERATIONS:
+        if operation in READ_ONLY:
+            continue
+        assert make_operation(operation, Path("/tmp/nowhere")) is not None

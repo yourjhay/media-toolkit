@@ -7,6 +7,7 @@ from pathlib import Path
 HEIC_EXTS = {".heic", ".heif"}
 RASTER_EXTS = {".jpg", ".jpeg", ".png"}
 WEBP_EXTS = {".webp"}
+ALL_IMAGE_EXTS = HEIC_EXTS | RASTER_EXTS | WEBP_EXTS
 
 
 def find_images(

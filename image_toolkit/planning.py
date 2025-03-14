@@ -13,7 +13,7 @@ from typing import Callable
 
 
 from .core import compress, convert_heic, convert_to_webp, resize
-from .discovery import HEIC_EXTS, RASTER_EXTS
+from .discovery import ALL_IMAGE_EXTS, HEIC_EXTS, RASTER_EXTS
 from .jobs import Operation
 from .menu import MenuItem
 
@@ -28,13 +28,19 @@ OPERATIONS: dict[str, str] = {
     "webp": "JPG / PNG    →  WebP",
     "resize": "Resize JPG / PNG",
     "compress": "Compress JPG / PNG to a target size",
+    "inspect": "Read the metadata in an image",
 }
+
+# Operations that only look. They skip the whole output pipeline: no output
+# folder, no overwrite question, no confirmation, nothing written.
+READ_ONLY = frozenset({"inspect"})
 
 _EXTENSIONS: dict[str, set[str]] = {
     "heic": HEIC_EXTS,
     "webp": RASTER_EXTS,
     "resize": RASTER_EXTS,
     "compress": RASTER_EXTS,
+    "inspect": ALL_IMAGE_EXTS,
 }
 
 _FUNCTIONS = {
@@ -109,6 +115,7 @@ def menu_items() -> list[MenuItem]:
         MenuItem("webp", "JPG / PNG", "→ WebP", "#4aa8ff"),
         MenuItem("resize", "Resize", "scale down to fit", "#c77dff"),
         MenuItem("compress", "Compress", "shrink to a target size", "#f0a02a"),
+        MenuItem("inspect", "Read metadata", "camera, date, location", "#ff8fa3"),
         MenuItem(QUIT, "Quit", "leave the toolkit", "#8b949e"),
     ]
 
