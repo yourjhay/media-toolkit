@@ -24,7 +24,7 @@ from .metadata import FileMetadata, maps_link, pretty_datetime, read_metadata
 from .sizing import target_size
 from shared.chrome import choose_from_cards, print_banner
 from shared.format import human_bytes, size_change_row
-from shared.prompts import STYLE, Cancelled, ask as _ask, ask_int as _ask_int
+from shared.prompts import STYLE, Cancelled, GoBack, ask as _ask, ask_int as _ask_int
 from shared.prompts import ask_path as _shared_ask_path, pause as _pause
 from .stripper import STRIP_ALL, STRIP_LOCATION
 from .jobs import Summary, run_batch
@@ -535,10 +535,19 @@ def _one_round() -> bool:
     return True
 
 
+def _round_or_back() -> bool:
+    """One pass through the menu. Backing out of a question is not quitting."""
+    try:
+        return _one_round()
+    except GoBack:
+        console.print("[dim]Back to the menu.[/dim]\n")
+        return True
+
+
 def main() -> int:
     _banner()
     try:
-        while _one_round():
+        while _round_or_back():
             pass
     except Cancelled:
         console.print("\n[dim]Cancelled.[/dim]")

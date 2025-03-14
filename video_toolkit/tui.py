@@ -19,7 +19,9 @@ from rich.table import Table
 
 from shared.chrome import choose_from_cards, print_banner
 from shared.format import human_bytes, human_duration
-from shared.prompts import STYLE, Cancelled, ask as _ask
+from shared.prompts import STYLE, Cancelled, GoBack
+from shared.prompts import ask as _ask
+from shared.prompts import ask_text_or_back
 from shared.prompts import ask_path as _shared_ask_path
 from shared.prompts import pause as _pause
 from shared.settings import recall_path, remember_path
@@ -80,9 +82,10 @@ def _choose_operation() -> str:
 
 def _ask_url() -> str:
     while True:
-        raw = _ask(questionary.text("Link:", style=STYLE))
         try:
-            return clean_url(raw)
+            return clean_url(ask_text_or_back("Link:"))
+        except GoBack:
+            raise
         except ValueError as exc:
             console.print(f"[red]{exc}[/red]")
 
@@ -405,10 +408,19 @@ def _one_round() -> bool:
     return True
 
 
+def _round_or_back() -> bool:
+    """One pass through the menu. Backing out of a question is not quitting."""
+    try:
+        return _one_round()
+    except GoBack:
+        console.print("[dim]Back to the menu.[/dim]\n")
+        return True
+
+
 def main() -> int:
     _banner()
     try:
-        while _one_round():
+        while _round_or_back():
             pass
     except Cancelled:
         console.print("\n[dim]Cancelled.[/dim]")

@@ -11,6 +11,7 @@ from pathlib import Path
 import questionary
 from prompt_toolkit.application.current import get_app
 from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.key_binding import KeyBindings
 
 from .paths import clean_path_input
 
@@ -27,7 +28,47 @@ STYLE = questionary.Style(
 
 
 class Cancelled(Exception):
-    """The user pressed Ctrl-C or Esc at a prompt."""
+    """The user pressed Ctrl-C: they want out of the tool."""
+
+
+class GoBack(Exception):
+    """The user wants this question dropped and the menu back.
+
+    Deliberately not a kind of Cancelled: one returns to the menu, the other
+    ends the session, and catching them together would merge the two.
+    """
+
+
+def ask_text_or_back(
+    message: str,
+    default: str = "",
+    style=None,
+    asker=None,
+    instruction: str = "esc or blank to go back",
+) -> str:
+    """Ask for some text, with a way out that is not quitting.
+
+    Escape is bound explicitly because a questionary text prompt does not treat
+    it as a cancel — it is the prefix byte for escape sequences, so on its own
+    it does nothing at all. Submitting an empty line means the same thing, and
+    is the gesture most people try first.
+    """
+    bindings = KeyBindings()
+
+    @bindings.add("escape", eager=True)
+    def _(event) -> None:
+        event.app.exit(result="")
+
+    ask_for = asker or questionary.text
+    answer = ask(
+        ask_for(
+            message, default=default, style=style or STYLE,
+            instruction=instruction, key_bindings=bindings,
+        )
+    )
+    if not answer.strip():
+        raise GoBack
+    return answer
 
 
 def ask(question):
@@ -76,14 +117,22 @@ def ask_int(message: str, default: int, low: int, high: int, describe=None) -> i
     )
 
 
-def ask_path(console, message: str, default: str | None = None) -> Path:
-    """Prompt for a path, forgiving the ways terminals mangle one."""
+def ask_path(console, message: str, default: str | None = None, allow_back: bool = True) -> Path:
+    """Prompt for a path, forgiving the ways terminals mangle one.
+
+    Escape is not bound here: questionary.path supplies its own key bindings
+    for completion and will not take a second set. An empty line is the way
+    back, which is also the gesture most people try first.
+    """
     kwargs = {"style": STYLE}
     if default is not None:
         kwargs["default"] = default
     while True:
+        raw = ask(questionary.path(message, **kwargs))
+        if allow_back and not raw.strip():
+            raise GoBack
         try:
-            return clean_path_input(ask(questionary.path(message, **kwargs)))
+            return clean_path_input(raw)
         except ValueError:
             console.print("[red]Please enter a path.[/red]")
 
