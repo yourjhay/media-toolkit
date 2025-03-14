@@ -104,19 +104,37 @@ def readable_formats(info: dict) -> list[dict[str, str]]:
     return [describe_format(fmt) for fmt in ordered]
 
 
-def audio_postprocessors(convert_to: str | None, quality: str = "192") -> list[dict]:
-    """The ffmpeg step that turns a downloaded stream into a chosen codec.
+def audio_postprocessors(
+    convert_to: str | None,
+    quality: str = "192",
+    tags: bool = True,
+    cover: bool = True,
+) -> list[dict]:
+    """The ffmpeg steps applied to a downloaded audio stream.
 
-    YouTube's best audio is usually opus in a webm container. Playable, but
-    not what most people expect from an audio file, so converting is offered.
-    Requires ffmpeg; without it there is nothing to convert with.
+    Sites serve their best audio as opus in a webm container: playable, but not
+    what most people expect an audio file to be, so converting is offered.
+
+    Tags and cover art are written by default. Without them a player shows an
+    unknown artist and a blank square, which is what an untagged file looks
+    like even though the information was there all along. yt-dlp takes the
+    artist from the uploader and the genre from the video's own categories.
+
+    Order matters: the audio has to exist before anything can be written into
+    it, and the tags before the picture.
     """
-    if convert_to is None:
-        return []
-    if convert_to not in AUDIO_CODECS:
+    if convert_to is not None and convert_to not in AUDIO_CODECS:
         raise ValueError(f"codec must be one of {AUDIO_CODECS}, got {convert_to!r}")
-    return [{
-        "key": "FFmpegExtractAudio",
-        "preferredcodec": convert_to,
-        "preferredquality": quality,
-    }]
+
+    steps: list[dict] = []
+    if convert_to is not None:
+        steps.append({
+            "key": "FFmpegExtractAudio",
+            "preferredcodec": convert_to,
+            "preferredquality": quality,
+        })
+    if tags:
+        steps.append({"key": "FFmpegMetadata", "add_metadata": True})
+    if cover:
+        steps.append({"key": "EmbedThumbnail", "already_have_thumbnail": False})
+    return steps

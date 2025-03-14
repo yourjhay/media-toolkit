@@ -154,6 +154,8 @@ def download(
     ffmpeg: bool | None = None,
     convert_to: str | None = None,
     keep_original: bool = False,
+    tags: bool = True,
+    cover: bool = True,
     on_progress: Callable[[ProgressUpdate], None] | None = None,
     ydl_factory: Callable | None = None,
 ) -> DownloadResult:
@@ -178,7 +180,9 @@ def download(
         "outtmpl": str(dest_dir / "%(title)s.%(ext)s"),
         "progress_hooks": [hook],
         "ignoreerrors": False,
-        "postprocessors": audio_postprocessors(convert_to),
+        "postprocessors": audio_postprocessors(convert_to, tags=tags, cover=cover),
+        # EmbedThumbnail has nothing to work with unless the image is fetched.
+        "writethumbnail": bool(cover),
         # Whether the downloaded stream survives the conversion that replaces it.
         "keepvideo": keep_original,
     }

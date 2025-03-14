@@ -46,6 +46,49 @@ downloaded webm once the MP3 exists; answering yes leaves both side by side.
 
 Both questions need ffmpeg. Without it the prompt is skipped and says so.
 
+Tags and cover art are written either way. Without them a player shows an
+unknown artist and a blank square, even though the information was there all
+along: yt-dlp takes the artist from the uploader, the genre from the video's
+own categories, and the album art from its thumbnail.
+
+### It remembers where you save
+
+The folder you choose is kept between runs, so you set it once rather than
+every time. Downloads and locally converted files remember separately, in
+`~/.config/rj-toolkit/settings.json`. A missing or damaged settings file costs
+you that default and nothing else.
+
+### Messy links are tidied
+
+A YouTube link carrying `list=RD…` is a radio mix — an endless generated
+playlist that would otherwise download forever. When a link names a specific
+video, the playlist and share-tracking parameters are dropped:
+
+```
+watch?v=9cwf3BGhqFA&list=RD9cwf3BGhqFA&start_radio=1   ->   watch?v=9cwf3BGhqFA
+```
+
+A genuine `playlist?list=…` link is left alone, since there the playlist is
+what was asked for.
+
+### Working on files you already have
+
+vidkit also handles video already on your machine:
+
+- **Convert** — mp4 / mkv / mov / webm. When the streams inside are already
+  legal in the target container it repackages rather than re-encodes: under a
+  tenth of a second, and the video is untouched. It says which it is about to
+  do before starting.
+- **Compress to a target size** — name a size and it works the bitrate out
+  from the duration. This one deliberately uses software encoding: Apple's
+  hardware encoder is faster but honours a bitrate target loosely, producing
+  1.9 MB when asked for 1 MB where libx264 produced 995 KB.
+- **Trim** — a fast cut copies the streams, so it is instant and lossless but
+  must begin at a keyframe. On a video with widely spaced keyframes that can
+  make a five second cut come out at ten, so the tool measures what it
+  actually produced and tells you, rather than repeating what you asked for.
+  Turn the fast cut off for an exact one.
+
 ### ffmpeg
 
 Most sites serve anything above about 720p as **separate video and audio

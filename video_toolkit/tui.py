@@ -22,6 +22,7 @@ from shared.format import human_bytes, human_duration
 from shared.prompts import STYLE, Cancelled, ask as _ask
 from shared.prompts import ask_path as _shared_ask_path
 from shared.prompts import pause as _pause
+from shared.settings import recall_path, remember_path
 
 from .containers import plan_conversion, supported_targets
 from .download import OK as DOWNLOAD_OK
@@ -50,6 +51,21 @@ console = Console()
 TITLE = "VID TOOLKIT"
 SUBTITLE = "download  ·  audio only  ·  formats"
 ACCENT = "#00d6aa"
+
+
+DOWNLOAD_DEST = "video.download.dest"
+LOCAL_DEST = "video.local.dest"
+
+
+def _ask_dest(key: str, fallback: Path) -> Path:
+    """Ask where to save, offering wherever they said last time.
+
+    Typing the same folder on every run is the sort of small friction that
+    makes a tool tiring, so the answer is kept between sessions.
+    """
+    chosen = _shared_ask_path(console, "Save to:", default=str(recall_path(key, fallback)))
+    remember_path(key, chosen)
+    return chosen
 
 
 def _banner() -> None:
@@ -287,7 +303,7 @@ def _local_round(operation: str, ffmpeg: bool) -> bool:
         describe = "Trimming"
         settings = {"start": start, "end": end, "precise": precise}
 
-    dest_dir = _shared_ask_path(console, "Save to:", default=str(info.path.parent / "converted"))
+    dest_dir = _ask_dest(LOCAL_DEST, info.path.parent / "converted")
 
     if not _ask(questionary.confirm("Go ahead?", default=True, style=STYLE)):
         console.print("[dim]Cancelled.[/dim]\n")
@@ -362,7 +378,7 @@ def _one_round() -> bool:
             )
         )
 
-    dest_dir = _shared_ask_path(console, "Save to:", default=str(Path.home() / "Downloads"))
+    dest_dir = _ask_dest(DOWNLOAD_DEST, Path.home() / "Downloads")
 
     count = info.entries if info.is_playlist else 1
     if not _ask(

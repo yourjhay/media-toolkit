@@ -8,14 +8,16 @@ from video_toolkit.download import resolve_output
 
 # --- what to ask ffmpeg for ------------------------------------------------
 
-def test_no_conversion_means_no_postprocessors():
-    assert audio_postprocessors(None) == []
+def test_no_conversion_means_no_re_encoding_step():
+    """Tags and art are still written; only the codec change is skipped."""
+    steps = audio_postprocessors(None)
+
+    assert all(step["key"] != "FFmpegExtractAudio" for step in steps)
 
 
 def test_converting_asks_for_the_chosen_codec():
     steps = audio_postprocessors(MP3)
 
-    assert len(steps) == 1
     assert steps[0]["key"] == "FFmpegExtractAudio"
     assert steps[0]["preferredcodec"] == "mp3"
 
@@ -59,3 +61,67 @@ def test_the_last_written_file_wins_over_earlier_ones():
 
 def test_an_empty_requested_downloads_list_does_not_break_things():
     assert resolve_output({"requested_downloads": []}, ["/out/a.webm"], "x", None) == Path("/out/a.webm")
+
+
+# --- tags and cover art ----------------------------------------------------
+
+def _keys(steps):
+    return [step["key"] for step in steps]
+
+
+def test_tags_and_cover_art_are_embedded_by_default():
+    """An MP3 with no artist and no art is the complaint this answers."""
+    steps = audio_postprocessors(MP3)
+
+    assert "FFmpegMetadata" in _keys(steps)
+    assert "EmbedThumbnail" in _keys(steps)
+
+
+def test_the_audio_is_extracted_before_anything_is_written_into_it():
+    steps = _keys(audio_postprocessors(MP3))
+
+    assert steps.index("FFmpegExtractAudio") < steps.index("FFmpegMetadata")
+    assert steps.index("FFmpegMetadata") < steps.index("EmbedThumbnail")
+
+
+def test_tags_can_be_turned_off():
+    assert "FFmpegMetadata" not in _keys(audio_postprocessors(MP3, tags=False))
+
+
+def test_cover_art_can_be_turned_off():
+    assert "EmbedThumbnail" not in _keys(audio_postprocessors(MP3, cover=False))
+
+
+def test_tags_are_written_even_without_a_conversion():
+    """A downloaded m4a deserves its artist just as much as an MP3 does."""
+    steps = _keys(audio_postprocessors(None))
+
+    assert "FFmpegExtractAudio" not in steps
+    assert "FFmpegMetadata" in steps
+
+
+def test_asking_for_nothing_at_all_gives_nothing():
+    assert audio_postprocessors(None, tags=False, cover=False) == []
+
+
+def test_the_thumbnail_must_be_fetched_for_it_to_be_embedded(tmp_path):
+    """EmbedThumbnail has nothing to embed unless the image was downloaded."""
+    from tests.test_video_download import FakeYoutubeDL
+    from video_toolkit.download import download
+
+    FakeYoutubeDL.instances.clear()
+    download("https://example.com/watch?v=1", tmp_path, mode="audio",
+             convert_to=MP3, ydl_factory=FakeYoutubeDL)
+
+    assert FakeYoutubeDL.instances[0].options["writethumbnail"] is True
+
+
+def test_the_thumbnail_is_not_fetched_when_no_cover_is_wanted(tmp_path):
+    from tests.test_video_download import FakeYoutubeDL
+    from video_toolkit.download import download
+
+    FakeYoutubeDL.instances.clear()
+    download("https://example.com/watch?v=1", tmp_path, mode="audio",
+             convert_to=MP3, cover=False, ydl_factory=FakeYoutubeDL)
+
+    assert FakeYoutubeDL.instances[0].options["writethumbnail"] is False
