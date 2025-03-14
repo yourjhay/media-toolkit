@@ -1,0 +1,394 @@
+"""The interactive terminal menu.
+
+This layer only asks questions and draws results. Every decision it collects
+is handed to `planning`, and every byte of image work happens in `core`.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import questionary
+from prompt_toolkit.application.current import get_app
+from prompt_toolkit.formatted_text import FormattedText
+from questionary import Choice
+from rich.console import Console
+from rich.panel import Panel
+from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
+from rich.table import Table
+from rich.text import Text
+
+from .banner import (
+    GRADIENT_END,
+    GRADIENT_START,
+    banner_lines,
+    gradient_colors,
+    subtitle_for,
+)
+from .core import FAILED, OK, SHORT, SKIPPED, probe_quality_sizes
+from .discovery import find_images
+from .estimate import QUALITY_ANCHORS, build_quality_model, compress_target
+from .info import FileInfo, FolderInfo, inspect_source
+from .jobs import Summary, run_batch
+from .planning import (
+    OPERATIONS,
+    QUIT,
+    assign_output_paths,
+    clean_path_input,
+    default_output_dir,
+    extensions_for,
+    format_estimate,
+    human_bytes,
+    median_by_size,
+    make_operation,
+    operation_choices,
+    size_change_row,
+)
+
+console = Console()
+
+STYLE = questionary.Style(
+    [
+        ("qmark", "fg:#00b894 bold"),
+        ("question", "bold"),
+        ("answer", "fg:#0984e3 bold"),
+        ("pointer", "fg:#00b894 bold"),
+        ("highlighted", "fg:#00b894 bold"),
+        ("selected", "fg:#00b894"),
+    ]
+)
+
+_STATUS_LABEL = {
+    OK: ("[green]done[/green]", "green"),
+    SHORT: ("[yellow]short of target[/yellow]", "yellow"),
+    SKIPPED: ("[dim]skipped[/dim]", "dim"),
+    FAILED: ("[red]failed[/red]", "red"),
+}
+
+
+class Cancelled(Exception):
+    """The user pressed Ctrl-C or Esc at a prompt."""
+
+
+def _ask(question):
+    answer = question.ask()
+    if answer is None:
+        raise Cancelled
+    return answer
+
+
+def _live_hint(describe, low: int, high: int):
+    """A right-hand prompt recomputed on every keystroke.
+
+    Anything at all going wrong here must leave the prompt usable, so a bad
+    number or a failed lookup simply shows nothing.
+    """
+
+    def rprompt():
+        try:
+            value = int(get_app().current_buffer.text.strip())
+            if not low <= value <= high:
+                return ""
+            return FormattedText([("fg:#8b949e", f"  {describe(value)} ")])
+        except Exception:
+            return ""
+
+    return rprompt
+
+
+def _ask_int(
+    message: str,
+    default: int,
+    low: int,
+    high: int,
+    describe=None,
+) -> int:
+    def validate(text: str) -> bool | str:
+        try:
+            value = int(text)
+        except ValueError:
+            return "Enter a whole number"
+        if not low <= value <= high:
+            return f"Enter a number from {low} to {high}"
+        return True
+
+    extra = {"rprompt": _live_hint(describe, low, high)} if describe else {}
+    return int(
+        _ask(
+            questionary.text(
+                message, default=str(default), validate=validate, style=STYLE, **extra
+            )
+        )
+    )
+
+
+def _gradient_line(line: str) -> Text:
+    """One banner row, its colour sliding left to right across the glyphs."""
+    text = Text()
+    for char, rgb in zip(line, gradient_colors(len(line), GRADIENT_START, GRADIENT_END)):
+        text.append(char, style=f"rgb({rgb[0]},{rgb[1]},{rgb[2]})")
+    return text
+
+
+def _banner() -> None:
+    width = console.width
+    *art, byline = banner_lines(width)
+    console.print()
+    for line in art:
+        console.print(_gradient_line(line))
+    console.print(Text(byline, style="italic dim"))
+    subtitle = subtitle_for(width)
+    if subtitle:
+        console.print(Text(subtitle.center(width), style="dim"))
+    console.print(_gradient_line("─" * width))
+    console.print()
+
+
+def _choose_operation() -> str:
+    return _ask(
+        questionary.select(
+            "What would you like to do?", choices=operation_choices(), style=STYLE
+        )
+    )
+
+
+def _ask_path(message: str, default: str | None = None) -> Path:
+    """Prompt for a path, forgiving the ways terminals mangle one."""
+    kwargs = {"style": STYLE}
+    if default is not None:
+        kwargs["default"] = default
+    while True:
+        try:
+            return clean_path_input(_ask(questionary.path(message, **kwargs)))
+        except ValueError:
+            console.print("[red]Please enter a path.[/red]")
+
+
+def _choose_source() -> Path:
+    while True:
+        source = _ask_path("Source file or folder:")
+        if source.exists():
+            return source
+        console.print(f"[red]No such path:[/red] {source}")
+
+
+def _source_panel(info: FileInfo | FolderInfo) -> Panel:
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    if isinstance(info, FileInfo):
+        table.add_row("File", f"[bold]{info.name}[/bold]")
+        table.add_row("Size", human_bytes(info.size_bytes))
+        if info.dimensions:
+            width, height = info.dimensions
+            table.add_row("Image", f"{width} × {height}   {info.format}")
+        if info.error:
+            table.add_row("Problem", f"[red]{info.error}[/red]")
+        table.add_row("Location", str(info.location))
+        title = "Source file"
+    else:
+        table.add_row("Folder", f"[bold]{info.name}[/bold]")
+        table.add_row("Location", str(info.location))
+        if info.total_count:
+            table.add_row("Here", f"{info.here_count} images, {human_bytes(info.here_bytes)}")
+            if info.nested_count:
+                table.add_row(
+                    "Subfolders",
+                    f"{info.nested_count} images, {human_bytes(info.nested_bytes)}",
+                )
+        else:
+            table.add_row("Contents", "[yellow]no matching images[/yellow]")
+        title = "Source folder"
+    return Panel(table, title=title, border_style="cyan", title_align="left")
+
+
+def _quality_describer(files: list[Path], probe_format: str):
+    """Measure one real file, so typing a quality can show a live size.
+
+    Returns None when there is nothing to measure, in which case the prompt
+    simply has no hint.
+    """
+    sample = median_by_size(files)
+    if sample is None:
+        return None
+
+    total = sum(f.stat().st_size for f in files)
+    with console.status(f"[dim]Sampling {sample.name}…[/dim]", spinner="dots"):
+        try:
+            measured = probe_quality_sizes(sample, probe_format, QUALITY_ANCHORS)
+        except Exception as exc:
+            console.print(f"[yellow]Could not measure sizes ({exc}); continuing without estimates.[/yellow]")
+            return None
+
+    model = build_quality_model(
+        lambda q: measured[q],
+        source_bytes=sample.stat().st_size,
+        anchors=QUALITY_ANCHORS,
+        batch_source_bytes=total,
+        sample_name=sample.name,
+    )
+    if model.scaled:
+        console.print(
+            f"[dim]Estimates extrapolated from {sample.name}, "
+            f"the median of {len(files)} files.[/dim]"
+        )
+    return lambda quality: format_estimate(model.estimate(quality), model.source_bytes)
+
+
+def _collect_options(operation: str, files: list[Path]) -> dict:
+    if operation == "heic":
+        fmt = _ask(
+            questionary.select(
+                "Convert to:",
+                choices=[Choice("JPG", "jpg"), Choice("PNG", "png")],
+                style=STYLE,
+            )
+        )
+        options = {"fmt": fmt}
+        if fmt == "jpg":
+            options["quality"] = _ask_int(
+                "JPEG quality (1-100):", 90, 1, 100, _quality_describer(files, "jpg")
+            )
+        return options
+
+    if operation == "webp":
+        lossless = _ask(
+            questionary.confirm("Lossless WebP? (larger files, exact pixels)", default=False, style=STYLE)
+        )
+        options = {"lossless": lossless}
+        if not lossless:
+            options["quality"] = _ask_int(
+                "WebP quality (1-100):", 80, 1, 100, _quality_describer(files, "webp")
+            )
+        return options
+
+    total = sum(f.stat().st_size for f in files)
+
+    def describe(pct: int) -> str:
+        return format_estimate(compress_target(total, pct), total)
+
+    return {
+        "reduce_pct": _ask_int(
+            "Shrink files by what percent? (1-99):", 50, 1, 99, describe
+        )
+    }
+
+
+def _preview(
+    files: list[Path],
+    dest_dir: Path,
+    operation: str,
+    options: dict,
+    renamed: list[tuple[Path, Path]],
+) -> None:
+    total = sum(f.stat().st_size for f in files)
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_row("Files", str(len(files)))
+    table.add_row("Total size", human_bytes(total))
+    table.add_row("Output", str(dest_dir))
+    for key, value in options.items():
+        table.add_row(key.replace("_", " ").capitalize(), str(value))
+    if renamed:
+        table.add_row("Renamed", f"[yellow]{len(renamed)}[/yellow] (same name in another folder)")
+    console.print(Panel(table, title=OPERATIONS[operation], border_style="cyan"))
+
+    for src, out in renamed[:5]:
+        console.print(f"[dim]  {src.name} from {src.parent.name}/ → {out.name}[/dim]")
+    if len(renamed) > 5:
+        console.print(f"[dim]  …and {len(renamed) - 5} more[/dim]")
+
+
+def _run(files: list[Path], operation) -> Summary:
+    with Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("{task.completed}/{task.total}"),
+        TimeElapsedColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task("Working", total=len(files))
+
+        def advance(result) -> None:
+            progress.update(task, advance=1, description=result.source.name[:34])
+
+        summary = run_batch(files, operation, on_progress=advance)
+        progress.update(task, description="Done")
+    return summary
+
+
+def _report(summary: Summary) -> None:
+    counts = summary.counts
+    table = Table(box=None, padding=(0, 2))
+    table.add_column("Outcome")
+    table.add_column("Files", justify="right")
+    for status in (OK, SHORT, SKIPPED, FAILED):
+        if counts.get(status):
+            table.add_row(_STATUS_LABEL[status][0], str(counts[status]))
+    label, value = size_change_row(summary.bytes_saved)
+    table.add_row(f"[bold]{label}[/bold]", f"[bold]{value}[/bold]")
+    console.print(table)
+
+    for result in summary.of_status(SHORT):
+        console.print(f"[yellow]·[/yellow] {result.source.name}: {result.detail}")
+    for result in summary.of_status(FAILED):
+        console.print(f"[red]·[/red] {result.source.name}: {result.detail}")
+
+
+def _one_round() -> bool:
+    """Run a single operation end to end. Returns False when the user quits."""
+    operation = _choose_operation()
+    if operation == QUIT:
+        return False
+
+    source = _choose_source()
+    extensions = extensions_for(operation)
+    console.print(_source_panel(inspect_source(source, extensions)))
+
+    recursive = False
+    if source.is_dir():
+        recursive = _ask(questionary.confirm("Include subfolders?", default=False, style=STYLE))
+
+    dest_dir = _ask_path("Output folder:", default=str(default_output_dir(source)))
+
+    # Discovered before the options are asked, so a quality prompt can measure
+    # a real file, and so an empty run is caught before asking anything else.
+    files = find_images(source, extensions, recursive=recursive, exclude=[dest_dir])
+    if not files:
+        console.print("[yellow]No matching images found there.[/yellow]\n")
+        return True
+
+    options = _collect_options(operation, files)
+    options["overwrite"] = _ask(
+        questionary.confirm("Overwrite files already in the output folder?", default=False, style=STYLE)
+    )
+
+    # A recursive run flattens subfolders, so two same-named photos would
+    # otherwise land on the same output file.
+    def name_of(src: Path) -> str:
+        return output_name(operation, src, options.get("fmt"))
+
+    outputs = assign_output_paths(files, dest_dir, name_of)
+    renamed = [(src, out) for src, out in outputs.items() if out.name != name_of(src)]
+
+    _preview(files, dest_dir, operation, options, renamed)
+    if not _ask(questionary.confirm(f"Process {len(files)} file(s)?", default=True, style=STYLE)):
+        console.print("[dim]Cancelled.[/dim]\n")
+        return True
+
+    summary = _run(files, make_operation(operation, dest_dir, outputs=outputs, **options))
+    _report(summary)
+    console.print()
+    return True
+
+
+def main() -> int:
+    _banner()
+    try:
+        while _one_round():
+            pass
+    except Cancelled:
+        console.print("\n[dim]Cancelled.[/dim]")
+        return 130
+    except KeyboardInterrupt:
+        console.print("\n[dim]Interrupted.[/dim]")
+        return 130
+    console.print("[dim]Bye.[/dim]")
+    return 0

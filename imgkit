@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Launcher for the image toolkit TUI.
+set -euo pipefail
+
+# Follow the symlink chain: this script is commonly symlinked onto PATH, and
+# the venv lives next to the real file, not next to the link.
+SOURCE="${BASH_SOURCE[0]}"
+while [ -L "$SOURCE" ]; do
+  LINK_DIR="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+  SOURCE="$(readlink "$SOURCE")"
+  [[ $SOURCE != /* ]] && SOURCE="$LINK_DIR/$SOURCE"
+done
+HERE="$(cd -P "$(dirname "$SOURCE")" && pwd)"
+
+if [ ! -x "$HERE/.venv/bin/python" ]; then
+  echo "Virtualenv missing. Run: $HERE/setup.sh" >&2
+  exit 1
+fi
+
+exec "$HERE/.venv/bin/python" -m image_toolkit "$@"
