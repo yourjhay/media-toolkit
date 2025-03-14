@@ -12,10 +12,11 @@ from pathlib import Path
 from typing import Callable
 
 
-from .core import compress, convert_heic, convert_to_webp, resize
+from .core import compress, convert_heic, convert_to_webp, resize, strip_metadata
 from .discovery import ALL_IMAGE_EXTS, HEIC_EXTS, RASTER_EXTS
 from .jobs import Operation
 from .menu import MenuItem
+from .stripper import SUPPORTED_SUFFIXES
 
 OUTPUT_DIRNAME = "converted"
 
@@ -32,8 +33,14 @@ OPERATIONS: dict[str, str] = {
     "webp": "JPG / PNG    →  WebP",
     "resize": "Resize JPG / PNG",
     "compress": "Compress JPG / PNG to a target size",
+    "strip": "Strip metadata without re-encoding",
     "inspect": "Read the metadata in an image",
 }
+
+# Operations that carry a source's metadata into their output, and so need to
+# be told how much of it to keep. The stripper is not one of them: choosing
+# what to remove is the whole job, asked as its own question.
+METADATA_AWARE = frozenset({"heic", "webp", "resize", "compress"})
 
 # Operations that only look. They skip the whole output pipeline: no output
 # folder, no overwrite question, no confirmation, nothing written.
@@ -44,6 +51,7 @@ _EXTENSIONS: dict[str, set[str]] = {
     "webp": RASTER_EXTS,
     "resize": RASTER_EXTS,
     "compress": RASTER_EXTS,
+    "strip": SUPPORTED_SUFFIXES,
     "inspect": ALL_IMAGE_EXTS,
 }
 
@@ -52,6 +60,7 @@ _FUNCTIONS = {
     "webp": convert_to_webp,
     "resize": resize,
     "compress": compress,
+    "strip": strip_metadata,
 }
 
 
@@ -119,6 +128,7 @@ def menu_items() -> list[MenuItem]:
         MenuItem("webp", "JPG / PNG", "→ WebP", "#4aa8ff"),
         MenuItem("resize", "Resize", "scale down to fit", "#c77dff"),
         MenuItem("compress", "Compress", "shrink to a target size", "#f0a02a"),
+        MenuItem("strip", "Strip metadata", "no quality loss", "#7ee787"),
         MenuItem("inspect", "Read metadata", "camera, date, location", "#ff8fa3"),
         MenuItem(QUIT, "Quit", "leave the toolkit", "#8b949e"),
     ]
@@ -198,7 +208,7 @@ def output_name(operation: str, src: Path, fmt: str | None = None) -> str:
         return f"{src.stem}.{(fmt or 'jpg').lower().lstrip('.')}"
     if operation == "webp":
         return f"{src.stem}.webp"
-    if operation in ("compress", "resize"):
+    if operation in ("compress", "resize", "strip"):
         return src.name  # same format in, same out
     raise ValueError(f"Unknown operation: {operation!r}")
 
@@ -238,3 +248,10 @@ def assign_output_paths(
         assigned[src] = dest_dir / candidate
 
     return assigned
+
+
+def asks_metadata(operation: str) -> bool:
+    """Whether this operation needs the keep/strip question."""
+    if operation not in OPERATIONS:
+        raise ValueError(f"Unknown operation: {operation!r}")
+    return operation in METADATA_AWARE

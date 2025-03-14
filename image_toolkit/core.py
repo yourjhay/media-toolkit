@@ -15,6 +15,7 @@ import pillow_heif
 from PIL import Image, ImageOps
 
 from .sizing import target_size
+from .stripper import STRIP_ALL, STRIP_LOCATION, check_mode as check_strip_mode, strip_bytes
 
 pillow_heif.register_heif_opener()
 
@@ -421,3 +422,47 @@ def resize(
         detail = f"{original[0]}×{original[1]} → {target[0]}×{target[1]}"
 
     return Result(src, out, OK, src_bytes, out.stat().st_size, detail, quality=quality)
+
+
+def strip_metadata(
+    src: Path,
+    dest_dir: Path,
+    mode: str = STRIP_ALL,
+    overwrite: bool = False,
+    out_path: Path | None = None,
+) -> Result:
+    """Remove metadata from one file without re-encoding the picture.
+
+    Unlike every other operation here, this one never decodes the image. The
+    compressed data is copied through byte for byte and only the metadata
+    blocks are cut out, so the result is pixel-for-pixel the original. That
+    matters because the usual way to shed metadata — convert or recompress —
+    costs a generation of quality every time.
+    """
+    check_strip_mode(mode)
+    src, dest_dir = Path(src), Path(dest_dir)
+    out = Path(out_path) if out_path is not None else dest_dir / src.name
+    src_bytes = src.stat().st_size
+
+    if out.resolve() == src.resolve():
+        return Result(
+            src, None, FAILED, src_bytes, 0,
+            "refusing to rewrite a file over itself; choose a different output directory",
+        )
+
+    if out.exists() and not overwrite:
+        return Result(src, out, SKIPPED, src_bytes, out.stat().st_size, "output already exists")
+
+    try:
+        original = src.read_bytes()
+        cleaned = strip_bytes(original, src.suffix, mode)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_bytes(cleaned)
+    except Exception as exc:
+        return Result(src, None, FAILED, src_bytes, 0, f"{type(exc).__name__}: {exc}")
+
+    removed = len(original) - len(cleaned)
+    detail = (
+        f"removed {removed} bytes of metadata" if removed else "no metadata to remove"
+    )
+    return Result(src, out, OK, src_bytes, len(cleaned), detail)

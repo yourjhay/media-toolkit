@@ -37,11 +37,13 @@ from .estimate import QUALITY_ANCHORS, build_quality_model, compress_target
 from .info import FileInfo, FolderInfo, inspect_source
 from .metadata import FileMetadata, maps_link, pretty_datetime, read_metadata
 from .sizing import target_size
+from .stripper import STRIP_ALL, STRIP_LOCATION
 from .jobs import Summary, run_batch
 from .menu import columns_for, next_index, render_grid
 from .planning import (
     BACK,
     OPERATIONS,
+    asks_metadata,
     QUIT,
     READ_ONLY,
     assign_output_paths,
@@ -525,9 +527,27 @@ def _collect_resize_options() -> dict:
     }
 
 
+def _collect_strip_options() -> dict:
+    return {
+        "mode": _ask(
+            questionary.select(
+                "Remove:",
+                choices=[
+                    Choice("Everything  —  camera, date, location, comments", STRIP_ALL),
+                    Choice("Location only  —  keep the camera and date", STRIP_LOCATION),
+                ],
+                style=STYLE,
+            )
+        )
+    }
+
+
 def _collect_options(operation: str, files: list[Path]) -> dict:
     if operation == "resize":
         return _collect_resize_options()
+
+    if operation == "strip":
+        return _collect_strip_options()
 
     if operation == "heic":
         fmt = _ask(
@@ -662,7 +682,8 @@ def _one_round() -> bool:
         return True
 
     options = _collect_options(operation, files)
-    options["metadata"] = _ask_metadata()
+    if asks_metadata(operation):
+        options["metadata"] = _ask_metadata()
     estimate = _resize_estimate(files, options) if operation == "resize" else None
     options["overwrite"] = _ask(
         questionary.confirm("Overwrite files already in the output folder?", default=False, style=STYLE)

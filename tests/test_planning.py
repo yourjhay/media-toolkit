@@ -269,3 +269,44 @@ def test_every_writing_operation_still_has_a_function():
         if operation in READ_ONLY:
             continue
         assert make_operation(operation, Path("/tmp/nowhere")) is not None
+
+
+def test_converting_operations_ask_what_to_do_with_metadata():
+    from image_toolkit.planning import asks_metadata
+
+    for operation in ("heic", "webp", "resize", "compress"):
+        assert asks_metadata(operation)
+
+
+def test_the_stripper_does_not_ask_the_metadata_question():
+    """Choosing what to remove is its whole job, asked as its own question."""
+    from image_toolkit.planning import asks_metadata
+
+    assert not asks_metadata("strip")
+
+
+def test_a_read_only_operation_does_not_ask_the_metadata_question():
+    from image_toolkit.planning import asks_metadata
+
+    assert not asks_metadata("inspect")
+
+
+def test_every_operation_has_an_answer_to_the_metadata_question():
+    from image_toolkit.planning import asks_metadata
+
+    for operation in OPERATIONS:
+        assert asks_metadata(operation) in (True, False)
+
+
+def test_an_unknown_operation_is_rejected():
+    from image_toolkit.planning import asks_metadata
+
+    with pytest.raises(ValueError):
+        asks_metadata("nonsense")
+
+
+def test_the_stripper_only_accepts_containers_it_can_edit():
+    from image_toolkit.stripper import SUPPORTED_SUFFIXES
+
+    assert extensions_for("strip") == SUPPORTED_SUFFIXES
+    assert ".heic" not in extensions_for("strip")

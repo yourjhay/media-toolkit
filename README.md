@@ -1,11 +1,14 @@
 # image toolkit
 
-An interactive terminal tool for five jobs:
+![img toolkit](docs/cover.png)
+
+An interactive terminal tool for six jobs:
 
 - **HEIC / HEIF → JPG or PNG** — iPhone photos into something everything can open
 - **JPG / PNG → WebP** — lossy or lossless, transparency preserved
 - **Resize JPG / PNG** — scale down to fit a box or a percentage
 - **Compress JPG / PNG** — shrink a file by a target percentage
+- **Strip metadata** — remove it without re-encoding the picture
 - **Read metadata** — see what a photo records about itself
 
 No GUI, no flags to memorise. Run it, answer the prompts with the arrow keys.
@@ -72,6 +75,36 @@ escape quits. The selected card is drawn with a heavy border as well as a
 brighter colour, so the selection is still visible over SSH, in a pipe, or in
 any terminal without truecolour. Below about 55 columns the grid drops to a
 single column.
+
+## Strip metadata
+
+Removes metadata **without touching the picture**. Not "almost the same" —
+byte-for-byte identical pixels:
+
+```
+source              1.3 MB   GPS=4   camera=iPhone 15 Pro
+strip everything    1.3 MB   GPS=0   camera=—              pixels identical: True
+strip location      1.3 MB   GPS=0   camera=iPhone 15 Pro  pixels identical: True
+
+via compress -10%   1.1 MB   GPS=0                         pixels identical: False
+```
+
+The other operations all decode the image and encode it again, which costs a
+generation of quality every time. Metadata does not live in the pixels, so it
+can be cut out of the container directly: the compressed image data is copied
+through untouched and only the metadata blocks are dropped or rewritten. JPEG
+APP segments, PNG chunks and WebP RIFF chunks are each handled natively.
+
+Two modes: remove everything, or remove only the location and keep the camera
+and date.
+
+**Colour profiles are deliberately kept.** An ICC profile is metadata in the
+technical sense, but dropping one visibly shifts the colours, which is not
+what anyone means by "strip metadata".
+
+XMP blocks are always removed rather than edited, in both modes, because XMP
+can carry its own copy of the location. HEIC is not supported here — its
+container is not one this handles — so convert it first.
 
 ## Read metadata
 
