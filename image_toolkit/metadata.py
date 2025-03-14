@@ -10,8 +10,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from PIL import Image
-
 from .core import _load_upright
 
 # EXIF tag numbers, named so the extraction table below reads as prose.

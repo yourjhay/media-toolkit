@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from image_toolkit.discovery import HEIC_EXTS, RASTER_EXTS, find_images

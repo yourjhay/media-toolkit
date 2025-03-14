@@ -15,7 +15,6 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 from rich.table import Table
-from rich.text import Text
 
 from .core import FAILED, KEEP, OK, SAFE, SHORT, SKIPPED, STRIP, probe_quality_sizes
 from .discovery import find_images
@@ -36,7 +35,6 @@ from .planning import (
     QUIT,
     READ_ONLY,
     assign_output_paths,
-    clean_path_input,
     default_output_dir,
     extensions_for,
     format_estimate,
@@ -66,18 +64,12 @@ _STATUS_LABEL = {
 
 
 
+TITLE = "IMG TOOLKIT"
+SUBTITLE = "HEIC → JPG/PNG   ·   resize   ·   compress   ·   metadata"
+
+
 def _banner() -> None:
-    width = console.width
-    *art, byline = banner_lines(width)
-    console.print()
-    for line in art:
-        console.print(_gradient_line(line))
-    console.print(Text(byline, style="italic dim"))
-    subtitle = subtitle_for(width)
-    if subtitle:
-        console.print(Text(subtitle.center(width), style="dim"))
-    console.print(_gradient_line("─" * width))
-    console.print()
+    print_banner(console, TITLE, SUBTITLE)
 
 
 def _choose_operation() -> str:

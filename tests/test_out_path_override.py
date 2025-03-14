@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from PIL import Image
 
 from image_toolkit.core import compress, convert_heic, convert_to_webp

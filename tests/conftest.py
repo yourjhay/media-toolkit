@@ -1,7 +1,5 @@
 """Shared fixtures. Real image files are generated here, never mocked."""
 
-import io
-
 import pytest
 from PIL import Image
 import pillow_heif

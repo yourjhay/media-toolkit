@@ -35,7 +35,6 @@ from .timecode import format_timecode, parse_timecode
 from .formats import AUDIO, MP3, VIDEO, quality_warning, readable_formats
 from .planning import (
     LOCAL,
-    OPERATIONS,
     SIZE_PRESETS,
     VIDEO_SUFFIXES,
     QUALITY_PRESETS,

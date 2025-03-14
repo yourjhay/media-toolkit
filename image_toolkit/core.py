@@ -15,7 +15,7 @@ import pillow_heif
 from PIL import Image, ImageOps
 
 from .sizing import target_size
-from .stripper import STRIP_ALL, STRIP_LOCATION, check_mode as check_strip_mode, strip_bytes
+from .stripper import STRIP_ALL, check_mode as check_strip_mode, strip_bytes
 
 pillow_heif.register_heif_opener()
 

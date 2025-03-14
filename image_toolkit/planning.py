@@ -19,6 +19,10 @@ from shared.menu import MenuItem
 from shared.paths import clean_path_input
 from .stripper import SUPPORTED_SUFFIXES
 
+# Re-exported so callers have one place to look, even though these moved to
+# the shared package when the video toolkit arrived.
+__all__ = ["clean_path_input", "human_bytes", "size_change_row"]
+
 OUTPUT_DIRNAME = "converted"
 
 # A real value, never None: questionary falls back to a Choice's title when

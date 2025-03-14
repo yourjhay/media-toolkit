@@ -4,3 +4,4 @@ questionary>=2.0
 rich>=13.7
 pytest>=8.0
 yt-dlp>=2026.8
+pyflakes>=3.2
