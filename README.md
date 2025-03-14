@@ -107,6 +107,32 @@ reason, since that needs no conversion.
 
 Download what you have the right to download.
 
+### When a download stops working
+
+Sites change how they serve video, and yt-dlp catches up within days. A copy
+that worked last month can start failing on the same link, usually as a 403,
+an "unable to extract" error, or a site that simply stops being recognised.
+
+Updating yt-dlp is the fix, and it is separate from updating this toolkit:
+
+```bash
+.venv/bin/pip install -U yt-dlp
+```
+
+Run it from the repo folder. It only touches the toolkit's own virtualenv, so
+nothing system-wide changes and no other project is affected.
+
+Worth reaching for when:
+
+- a **403** keeps coming back after retrying
+- the error mentions **"unable to extract"** or a player response
+- a site that used to work stops being recognised at all
+- you are downloading from somewhere niche, where extractors break most often
+
+If the retry prompt sees a 403, it suggests this command on the spot. The
+error not going away after an update usually means the video really is walled
+or gone rather than that something is broken.
+
 ## Install
 
 ```bash
