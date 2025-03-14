@@ -2,7 +2,8 @@
 
 ![img toolkit](docs/cover.png)
 
-Two interactive terminal tools sharing one install.
+`imgkit` for images, `vidkit` for video. Convert, resize, compress, strip,
+inspect — all from the keyboard, all on your own machine, one install.
 
 ## imgkit — images
 
