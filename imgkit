@@ -17,4 +17,10 @@ if [ ! -x "$HERE/.venv/bin/python" ]; then
   exit 1
 fi
 
+# Tell Python where the package lives. Without this it is only importable when
+# the current directory happens to be the project, because that is what puts it
+# on sys.path. Deliberately not a `cd`: the prompts accept relative paths, which
+# must resolve where the user is standing, not where the toolkit is installed.
+export PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}"
+
 exec "$HERE/.venv/bin/python" -m image_toolkit "$@"
