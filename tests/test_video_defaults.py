@@ -15,6 +15,9 @@ import video_toolkit.tui
 
 SOURCE = ast.parse(pathlib.Path(video_toolkit.tui.__file__).read_text())
 
+MISSING = object()   # no default given at all, which silently means No
+COMPUTED = object()  # a default, but decided at runtime
+
 
 def _confirm_defaults() -> dict[str, bool]:
     """Every questionary.confirm in the video TUI, by its question text."""
@@ -35,12 +38,14 @@ def _confirm_defaults() -> dict[str, bool]:
         else:
             continue
 
-        default = next(
-            (kw.value.value for kw in node.keywords
-             if kw.arg == "default" and isinstance(kw.value, ast.Constant)),
-            None,
-        )
-        found[text.strip()] = default
+        keyword = next((kw for kw in node.keywords if kw.arg == "default"), None)
+        if keyword is None:
+            found[text.strip()] = MISSING
+        elif isinstance(keyword.value, ast.Constant):
+            found[text.strip()] = keyword.value.value
+        else:
+            # Stated, but worked out at runtime rather than written down.
+            found[text.strip()] = COMPUTED
     return found
 
 
@@ -61,6 +66,11 @@ def test_pressing_enter_gives_the_expected_answer(question, expected):
 
 def test_every_confirmation_states_its_default():
     """A confirm without one defaults to No, which is rarely what was meant."""
-    missing = [q for q, d in DEFAULTS.items() if d is None]
+    missing = [q for q, d in DEFAULTS.items() if d is MISSING]
 
     assert not missing, f"these ask without saying what Enter does: {missing}"
+
+
+def test_the_retry_offer_decides_its_default_from_the_failure():
+    """Yes for something worth another go, No for a dead end — not a fixed answer."""
+    assert DEFAULTS.get("Try again?") is COMPUTED

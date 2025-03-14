@@ -194,3 +194,21 @@ def test_the_output_template_keeps_files_inside_the_chosen_folder(tmp_path):
 
     template = FakeYoutubeDL.instances[0].options["outtmpl"]
     assert str(tmp_path) in (template if isinstance(template, str) else template["default"])
+
+
+# --- retrying ---------------------------------------------------------------
+
+def test_transient_failures_are_retried_before_we_are_told(tmp_path):
+    """yt-dlp's library defaults leave retries unset, so a single 403 gave up."""
+    download("https://example.com/watch?v=1", tmp_path, ydl_factory=FakeYoutubeDL)
+    options = FakeYoutubeDL.instances[0].options
+
+    assert options["retries"] >= 3
+    assert options["fragment_retries"] >= 3
+    assert options["extractor_retries"] >= 1
+
+
+def test_a_stalled_connection_does_not_hang_forever(tmp_path):
+    download("https://example.com/watch?v=1", tmp_path, ydl_factory=FakeYoutubeDL)
+
+    assert FakeYoutubeDL.instances[0].options["socket_timeout"] > 0

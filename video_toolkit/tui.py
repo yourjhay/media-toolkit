@@ -29,6 +29,7 @@ from shared.settings import recall_path, remember_path
 from .containers import plan_conversion, supported_targets
 from .download import OK as DOWNLOAD_OK
 from .download import download, ffmpeg_available, probe
+from .failures import failure_hint, is_transient
 from .media import probe_media
 from .operations import OK as ENCODE_OK
 from .operations import OVER, SKIPPED
@@ -148,6 +149,7 @@ def _download_with_progress(
     ffmpeg: bool,
     convert_to: str | None = None,
     keep_original: bool = False,
+    label: str = "Downloading",
 ):
     with Progress(
         TextColumn("[progress.description]{task.description}"),
@@ -157,7 +159,7 @@ def _download_with_progress(
         TimeRemainingColumn(),
         console=console,
     ) as progress:
-        task = progress.add_task("Downloading", total=100, rate="")
+        task = progress.add_task(label, total=100, rate="")
 
         def on_progress(update) -> None:
             rate = f"{human_bytes(update.speed)}/s" if update.speed else ""
@@ -351,13 +353,25 @@ def _one_round() -> bool:
 
     url = _ask_url()
 
-    with console.status("[dim]Looking it up…[/dim]", spinner="dots"):
-        info = probe(url)
+    while True:
+        with console.status("[dim]Looking it up…[/dim]", spinner="dots"):
+            info = probe(url)
+        if not info.error:
+            break
 
-    if info.error:
-        console.print(f"  [red]Could not read that link.[/red]\n  [dim]{info.error}[/dim]\n")
-        _pause()
-        return True
+        console.print(f"  [red]Could not read that link.[/red]\n  [dim]{info.error}[/dim]")
+        hint = failure_hint(info.error)
+        if hint:
+            console.print(f"  [dim]{hint}[/dim]")
+        console.print()
+
+        if not _ask(
+            questionary.confirm(
+                "Try again?", default=is_transient(info.error), style=STYLE
+            )
+        ):
+            _pause()
+            return True
 
     console.print(_info_panel(info))
 
@@ -391,9 +405,27 @@ def _one_round() -> bool:
         console.print("[dim]Cancelled.[/dim]\n")
         return True
 
-    result = _download_with_progress(
-        url, dest_dir, mode, max_height, ffmpeg, convert_to, keep_original
-    )
+    attempt = 0
+    while True:
+        attempt += 1
+        label = "Downloading" if attempt == 1 else f"Retrying (attempt {attempt})"
+        result = _download_with_progress(
+            url, dest_dir, mode, max_height, ffmpeg, convert_to, keep_original, label
+        )
+        if result.status == DOWNLOAD_OK:
+            break
+
+        console.print(f"\n  [red]Failed.[/red] [dim]{result.detail}[/dim]")
+        hint = failure_hint(result.detail)
+        if hint:
+            console.print(f"  [dim]{hint}[/dim]")
+        console.print()
+
+        worth_it = is_transient(result.detail)
+        if not _ask(
+            questionary.confirm("Try again?", default=worth_it, style=STYLE)
+        ):
+            break
 
     if result.status == DOWNLOAD_OK:
         console.print(f"\n  [green]Saved[/green]  {human_bytes(result.size_bytes)}")

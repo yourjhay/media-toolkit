@@ -180,6 +180,12 @@ def download(
         "outtmpl": str(dest_dir / "%(title)s.%(ext)s"),
         "progress_hooks": [hook],
         "ignoreerrors": False,
+        # yt-dlp's command line retries by default; the library does not, so a
+        # single 403 from a server having a bad moment gave up immediately.
+        "retries": 5,
+        "fragment_retries": 5,
+        "extractor_retries": 3,
+        "socket_timeout": 30,
         "postprocessors": audio_postprocessors(convert_to, tags=tags, cover=cover),
         # EmbedThumbnail has nothing to work with unless the image is fetched.
         "writethumbnail": bool(cover),
