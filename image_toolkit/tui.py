@@ -40,6 +40,7 @@ from .sizing import target_size
 from .jobs import Summary, run_batch
 from .menu import columns_for, next_index, render_grid
 from .planning import (
+    BACK,
     OPERATIONS,
     QUIT,
     READ_ONLY,
@@ -358,6 +359,18 @@ def _metadata_summary(readings: list[FileMetadata]) -> None:
     console.print()
 
 
+def _detail_choices(readings: list[FileMetadata]) -> list[Choice]:
+    """One entry per file, then a way out.
+
+    The exit entry carries a sentinel rather than None: questionary swaps a
+    None value for the label text, which would arrive here as a string where
+    an index was expected.
+    """
+    choices = [Choice(data.name, index) for index, data in enumerate(readings)]
+    choices.append(Choice("Back to the menu", BACK))
+    return choices
+
+
 def _show_metadata(files: list[Path]) -> None:
     if len(files) == 1:
         _metadata_detail(read_metadata(files[0]))
@@ -368,12 +381,12 @@ def _show_metadata(files: list[Path]) -> None:
     _metadata_summary(readings)
 
     while True:
-        choices = [Choice(data.name, index) for index, data in enumerate(readings)]
-        choices.append(Choice("Back to the menu", None))
         picked = _ask(
-            questionary.select("Look at one in detail?", choices=choices, style=STYLE)
+            questionary.select(
+                "Look at one in detail?", choices=_detail_choices(readings), style=STYLE
+            )
         )
-        if picked is None:
+        if picked == BACK:
             return
         _metadata_detail(readings[picked])
 

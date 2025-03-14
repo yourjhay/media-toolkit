@@ -23,6 +23,10 @@ OUTPUT_DIRNAME = "converted"
 # its value is None, which would make this come back as the string "Quit".
 QUIT = "__quit__"
 
+# Same reason as QUIT: questionary hands back a Choice's label when its value
+# is None, so every sentinel here has to be a real value.
+BACK = "__back__"
+
 OPERATIONS: dict[str, str] = {
     "heic": "HEIC / HEIF  →  JPG or PNG",
     "webp": "JPG / PNG    →  WebP",
