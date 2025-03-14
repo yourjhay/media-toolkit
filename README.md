@@ -1,8 +1,12 @@
-# image toolkit
+# toolkit
 
 ![img toolkit](docs/cover.png)
 
-An interactive terminal tool for six jobs:
+Two interactive terminal tools sharing one install.
+
+## imgkit — images
+
+Six jobs:
 
 - **HEIC / HEIF → JPG or PNG** — iPhone photos into something everything can open
 - **JPG / PNG → WebP** — lossy or lossless, transparency preserved
@@ -13,6 +17,35 @@ An interactive terminal tool for six jobs:
 
 No GUI, no flags to memorise. Run it, answer the prompts with the arrow keys.
 
+## vidkit — video
+
+Downloading, with [yt-dlp](https://github.com/yt-dlp/yt-dlp) doing the fetching:
+
+- **Download a video** — best available, or capped at 1080p / 720p / 480p
+- **Download the audio only**
+- **List the available formats** — read-only, see what a link offers
+
+Paste a link and it looks the video up first, showing the title, uploader and
+length before anything is downloaded. A playlist link says how many videos it
+holds and asks before starting.
+
+### ffmpeg
+
+Most sites serve anything above about 720p as **separate video and audio
+streams**, which have to be merged back together. That merging is ffmpeg's
+job. Without it, only already-combined formats can be taken:
+
+```
+brew install ffmpeg
+```
+
+The toolkit checks at startup and says so rather than failing midway: with no
+ffmpeg it asks only for pre-muxed formats, so the download still completes —
+just at a lower ceiling. Audio-only downloads prefer `m4a` for the same
+reason, since that needs no conversion.
+
+Download what you have the right to download.
+
 ## Install
 
 ```bash
@@ -20,19 +53,22 @@ cd tools/image_toolkit
 ./setup.sh
 ```
 
-This creates a self-contained `.venv/` here. Nothing is installed system-wide,
-no Homebrew packages are needed.
+This creates a self-contained `.venv/` here, shared by both tools. Nothing is
+installed system-wide. ffmpeg is the one optional extra, and only vidkit wants
+it.
 
 ## Run
 
 ```bash
-./imgkit
+./imgkit     # images
+./vidkit     # video
 ```
 
-Optionally put it on your PATH:
+Optionally put them on your PATH:
 
 ```bash
 ln -s "$PWD/imgkit" /usr/local/bin/imgkit
+ln -s "$PWD/vidkit" /usr/local/bin/vidkit
 ```
 
 ## How the compressor works
@@ -276,19 +312,34 @@ genuine 900×1200 file.
 ## Layout
 
 ```
-imgkit              launcher
+imgkit / vidkit     launchers
 setup.sh            creates .venv, installs dependencies
+shared/
+  banner.py         the block-letter title, in two fonts
+  chrome.py         banner rendering and the card menu
+  menu.py           card grid geometry
+  prompts.py        asking questions
+  format.py         bytes and durations as people read them
+  paths.py          cleaning up a typed path
 image_toolkit/
   core.py           the image operations — pure functions over paths
   discovery.py      finding the files to work on
   jobs.py           running one operation across many files
+  stripper.py       metadata removal without re-encoding
   planning.py       turning choices into a bound operation
+  tui.py            the prompts and the rendering
+video_toolkit/
+  download.py       yt-dlp, with the library injectable for tests
+  formats.py        what to ask for, and how to describe what is offered
+  urls.py           cleaning up a pasted link
+  planning.py       the menu
   tui.py            the prompts and the rendering
 tests/
 ```
 
-`core`, `discovery`, `jobs` and `planning` know nothing about the TUI, so a
-flag-driven CLI could be added on top without touching them.
+`shared` knows about neither toolkit, and the two toolkits know nothing about
+each other — tests assert both. Within each, the domain modules know nothing
+about the TUI, so a flag-driven CLI could be added without touching them.
 
 ## Tests
 

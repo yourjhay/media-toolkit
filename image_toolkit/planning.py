@@ -6,7 +6,6 @@ and a flag-driven CLI could reuse it unchanged.
 
 from __future__ import annotations
 
-import re
 from functools import partial
 from pathlib import Path
 from typing import Callable
@@ -15,7 +14,9 @@ from typing import Callable
 from .core import compress, convert_heic, convert_to_webp, resize, strip_metadata
 from .discovery import ALL_IMAGE_EXTS, HEIC_EXTS, RASTER_EXTS
 from .jobs import Operation
-from .menu import MenuItem
+from shared.format import human_bytes, size_change_row
+from shared.menu import MenuItem
+from shared.paths import clean_path_input
 from .stripper import SUPPORTED_SUFFIXES
 
 OUTPUT_DIRNAME = "converted"
@@ -82,16 +83,6 @@ def default_output_dir(source: Path) -> Path:
     return base / OUTPUT_DIRNAME
 
 
-def human_bytes(size: int | float) -> str:
-    sign = "-" if size < 0 else ""
-    size = abs(size)
-    if size < 1024:
-        return f"{sign}{int(size)} B"
-    for unit in ("KB", "MB", "GB"):
-        size /= 1024
-        if size < 1024 or unit == "GB":
-            return f"{sign}{size:.1f} {unit}"
-    raise AssertionError("unreachable")
 
 
 def make_operation(
@@ -134,46 +125,10 @@ def menu_items() -> list[MenuItem]:
     ]
 
 
-_QUOTE_PAIRS = (("'", "'"), ('"', '"'))
 
 
-def clean_path_input(raw: str) -> Path:
-    """Turn what a person actually types at a path prompt into a Path.
-
-    Handles the three ways a perfectly valid path arrives broken:
-    tab completion appends a trailing space, copied paths come wrapped in
-    quotes, and dragging a file into a macOS terminal backslash-escapes the
-    spaces. A quoted path is taken literally, since the quotes already did
-    the escaping.
-    """
-    text = raw.strip()
-
-    quoted = False
-    for opening, closing in _QUOTE_PAIRS:
-        if len(text) >= 2 and text.startswith(opening) and text.endswith(closing):
-            text, quoted = text[1:-1], True
-            break
-
-    if not quoted:
-        # Undo shell-style escaping: "my\ photos" -> "my photos".
-        text = re.sub(r"\\(.)", r"\1", text).strip()
-
-    if not text:
-        raise ValueError("No path given")
-
-    return Path(text).expanduser()
 
 
-def size_change_row(bytes_saved: int) -> tuple[str, str]:
-    """Label and value for the summary's size line.
-
-    Conversions do not always shrink a file — HEIC out-compresses JPEG, so
-    HEIC to JPG routinely grows one. Reporting that as a negative saving reads
-    like a bug, so the label flips instead.
-    """
-    if bytes_saved < 0:
-        return "Size increase", human_bytes(-bytes_saved)
-    return "Space saved", human_bytes(bytes_saved)
 
 
 def format_estimate(estimated_bytes: int, source_bytes: int) -> str:

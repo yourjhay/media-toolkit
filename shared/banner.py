@@ -12,9 +12,7 @@ from __future__ import annotations
 
 RGB = tuple[int, int, int]
 
-PLAIN_TITLE = "IMG TOOLKIT"
 BYLINE = "by rj"
-SUBTITLE = "HEIC → JPG/PNG   ·   JPG/PNG → WebP   ·   compress"
 
 GRADIENT_START: RGB = (0, 214, 170)   # teal
 GRADIENT_END: RGB = (110, 130, 255)   # periwinkle
@@ -77,6 +75,22 @@ _BIG: dict[str, tuple[str, ...]] = {
         "██║  ██╗",
         "╚═╝  ╚═╝",
     ),
+    "V": (
+        "██╗   ██╗",
+        "██║   ██║",
+        "██║   ██║",
+        "╚██╗ ██╔╝",
+        " ╚████╔╝ ",
+        "  ╚═══╝  ",
+    ),
+    "D": (
+        "██████╗ ",
+        "██╔══██╗",
+        "██║  ██║",
+        "██║  ██║",
+        "██████╔╝",
+        "╚═════╝ ",
+    ),
     " ": (
         "   ",
         "   ",
@@ -96,21 +110,31 @@ _MEDIUM: dict[str, tuple[str, ...]] = {
     "O": ("╔═╗", "║ ║", "╚═╝"),
     "L": ("╦  ", "║  ", "╩═╝"),
     "K": ("╦╔═", "╠╩╗", "╩ ╩"),
+    "V": ("╦  ╦", "╚╗╔╝", " ╚╝ "),
+    "D": ("╔╦╗", " ║║", "═╩╝"),
     " ": ("  ", "  ", "  "),
 }
 
 
+class MissingGlyph(Exception):
+    """The font has no drawing for one of the title's letters."""
+
+
 def _render(text: str, glyphs: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
     """Lay the glyphs out side by side into one block of rows."""
+    missing = {char for char in text if char not in glyphs}
+    if missing:
+        raise MissingGlyph(f"no glyph for {sorted(missing)} in this font")
     height = len(next(iter(glyphs.values())))
     return tuple("".join(glyphs[char][row] for char in text) for row in range(height))
 
 
-_BIG_ART = _render(PLAIN_TITLE, _BIG)
-_MEDIUM_ART = _render(PLAIN_TITLE, _MEDIUM)
+def big_width(title: str) -> int:
+    return len(_render(title, _BIG)[0])
 
-BIG_WIDTH = len(_BIG_ART[0])
-MEDIUM_WIDTH = len(_MEDIUM_ART[0])
+
+def medium_width(title: str) -> int:
+    return len(_render(title, _MEDIUM)[0])
 
 
 def glyph_table() -> dict[str, dict[str, tuple[str, ...]]]:
@@ -118,21 +142,21 @@ def glyph_table() -> dict[str, dict[str, tuple[str, ...]]]:
     return {"big": _BIG, "medium": _MEDIUM}
 
 
-def _art_for(width: int) -> tuple[tuple[str, ...], int]:
-    if width >= BIG_WIDTH:
-        return _BIG_ART, BIG_WIDTH
-    if width >= MEDIUM_WIDTH:
-        return _MEDIUM_ART, MEDIUM_WIDTH
-    return (PLAIN_TITLE,), len(PLAIN_TITLE)
+def _art_for(width: int, title: str) -> tuple[tuple[str, ...], int]:
+    if width >= big_width(title):
+        return _render(title, _BIG), big_width(title)
+    if width >= medium_width(title):
+        return _render(title, _MEDIUM), medium_width(title)
+    return (title,), len(title)
 
 
-def banner_lines(width: int) -> list[str]:
+def banner_lines(width: int, title: str) -> list[str]:
     """The banner centred in, and padded out to, a terminal `width` wide.
 
     Every line is exactly `width` characters so the gradient can run edge to
     edge without leaving gaps at the ends of the shorter rows.
     """
-    art, art_width = _art_for(width)
+    art, art_width = _art_for(width, title)
     left = max(0, (width - art_width) // 2)
     lines = [(" " * left + row).ljust(width)[:width] for row in art]
     byline = (" " * left + BYLINE.rjust(art_width)).ljust(width)[:width]
@@ -153,9 +177,9 @@ def gradient_colors(steps: int, start: RGB, end: RGB) -> list[RGB]:
     ]
 
 
-def subtitle_for(width: int) -> str | None:
+def subtitle_for(width: int, subtitle: str) -> str | None:
     """The tagline, or None when the terminal is too narrow to hold it.
 
     Truncating it would cut mid-word, which looks like a rendering bug.
     """
-    return SUBTITLE if width >= len(SUBTITLE) else None
+    return subtitle if width >= len(subtitle) else None

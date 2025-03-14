@@ -1,6 +1,6 @@
 import pytest
 
-from image_toolkit.menu import (
+from shared.menu import (
     CARD_GAP,
     MIN_CARD_WIDTH,
     MenuItem,

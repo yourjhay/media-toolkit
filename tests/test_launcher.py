@@ -13,15 +13,17 @@ from pathlib import Path
 import pytest
 
 PROJECT = Path(__file__).resolve().parent.parent
-LAUNCHER = PROJECT / "imgkit"
+LAUNCHERS = [PROJECT / "imgkit", PROJECT / "vidkit"]
 
 
-def test_the_launcher_exists_and_is_executable():
+@pytest.mark.parametrize("LAUNCHER", LAUNCHERS, ids=lambda p: p.name)
+def test_the_launcher_exists_and_is_executable(LAUNCHER):
     assert LAUNCHER.exists()
     assert os.access(LAUNCHER, os.X_OK)
 
 
-def test_running_from_an_unrelated_directory_finds_the_package(tmp_path):
+@pytest.mark.parametrize("LAUNCHER", LAUNCHERS, ids=lambda p: p.name)
+def test_running_from_an_unrelated_directory_finds_the_package(LAUNCHER, tmp_path):
     result = subprocess.run(
         [str(LAUNCHER)],
         cwd=tmp_path,
@@ -36,7 +38,8 @@ def test_running_from_an_unrelated_directory_finds_the_package(tmp_path):
     assert "ModuleNotFoundError" not in combined, combined[:400]
 
 
-def test_the_launcher_does_not_change_the_working_directory():
+@pytest.mark.parametrize("LAUNCHER", LAUNCHERS, ids=lambda p: p.name)
+def test_the_launcher_does_not_change_the_working_directory(LAUNCHER):
     """Users type relative paths at the prompts; they must resolve where they stand."""
     source = LAUNCHER.read_text()
     commands = [
@@ -48,11 +51,13 @@ def test_the_launcher_does_not_change_the_working_directory():
     assert not commands, f"launcher changes directory: {commands}"
 
 
-def test_the_launcher_puts_the_package_on_the_path():
+@pytest.mark.parametrize("LAUNCHER", LAUNCHERS, ids=lambda p: p.name)
+def test_the_launcher_puts_the_package_on_the_path(LAUNCHER):
     assert "PYTHONPATH" in LAUNCHER.read_text()
 
 
-def test_an_existing_pythonpath_is_preserved(tmp_path):
+@pytest.mark.parametrize("LAUNCHER", LAUNCHERS, ids=lambda p: p.name)
+def test_an_existing_pythonpath_is_preserved(LAUNCHER, tmp_path):
     """Clobbering it would break whatever else the user has set up."""
     marker = str(tmp_path / "somewhere-else")
     env = {**os.environ, "PYTHONPATH": marker}
@@ -70,7 +75,8 @@ def test_an_existing_pythonpath_is_preserved(tmp_path):
     assert "No module named" not in result.stdout + result.stderr
 
 
-def test_a_directory_shadowing_the_package_name_does_not_win(tmp_path):
+@pytest.mark.parametrize("LAUNCHER", LAUNCHERS, ids=lambda p: p.name)
+def test_a_directory_shadowing_the_package_name_does_not_win(LAUNCHER, tmp_path):
     """Running from a folder that contains an 'image_toolkit' directory."""
     (tmp_path / "image_toolkit").mkdir()
 

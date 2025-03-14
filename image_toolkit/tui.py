@@ -9,13 +9,6 @@ from __future__ import annotations
 from pathlib import Path
 
 import questionary
-from prompt_toolkit.application import Application
-from prompt_toolkit.application.current import get_app
-from prompt_toolkit.formatted_text import FormattedText
-from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import HSplit, Layout, Window
-from prompt_toolkit.layout.controls import FormattedTextControl
-from prompt_toolkit.layout.dimension import Dimension
 from questionary import Choice
 from rich import box
 from rich.console import Console
@@ -24,22 +17,18 @@ from rich.progress import BarColumn, Progress, TextColumn, TimeElapsedColumn
 from rich.table import Table
 from rich.text import Text
 
-from .banner import (
-    GRADIENT_END,
-    GRADIENT_START,
-    banner_lines,
-    gradient_colors,
-    subtitle_for,
-)
 from .core import FAILED, KEEP, OK, SAFE, SHORT, SKIPPED, STRIP, probe_quality_sizes
 from .discovery import find_images
 from .estimate import QUALITY_ANCHORS, build_quality_model, compress_target
 from .info import FileInfo, FolderInfo, inspect_source
 from .metadata import FileMetadata, maps_link, pretty_datetime, read_metadata
 from .sizing import target_size
+from shared.chrome import choose_from_cards, print_banner
+from shared.format import human_bytes, size_change_row
+from shared.prompts import STYLE, Cancelled, ask as _ask, ask_int as _ask_int
+from shared.prompts import ask_path as _shared_ask_path, pause as _pause
 from .stripper import STRIP_ALL, STRIP_LOCATION
 from .jobs import Summary, run_batch
-from .menu import columns_for, next_index, render_grid
 from .planning import (
     BACK,
     OPERATIONS,
@@ -51,26 +40,14 @@ from .planning import (
     default_output_dir,
     extensions_for,
     format_estimate,
-    human_bytes,
     make_operation,
     median_by_size,
     menu_items,
     output_name,
-    size_change_row,
 )
 
 console = Console()
 
-STYLE = questionary.Style(
-    [
-        ("qmark", "fg:#00b894 bold"),
-        ("question", "bold"),
-        ("answer", "fg:#0984e3 bold"),
-        ("pointer", "fg:#00b894 bold"),
-        ("highlighted", "fg:#00b894 bold"),
-        ("selected", "fg:#00b894"),
-    ]
-)
 
 _STATUS_LABEL = {
     OK: ("[green]done[/green]", "green"),
@@ -80,75 +57,13 @@ _STATUS_LABEL = {
 }
 
 
-class Cancelled(Exception):
-    """The user pressed Ctrl-C or Esc at a prompt."""
 
 
-def _ask(question):
-    answer = question.ask()
-    if answer is None:
-        raise Cancelled
-    return answer
 
 
-def _live_hint(describe, low: int, high: int):
-    """A right-hand prompt recomputed on every keystroke.
-
-    Anything at all going wrong here must leave the prompt usable, so a bad
-    number or a failed lookup simply shows nothing.
-    """
-
-    def rprompt():
-        try:
-            value = int(get_app().current_buffer.text.strip())
-            if not low <= value <= high:
-                return ""
-            return FormattedText([("fg:#8b949e", f"  {describe(value)} ")])
-        except Exception:
-            return ""
-
-    return rprompt
 
 
-def _ask_int(
-    message: str,
-    default: int,
-    low: int,
-    high: int,
-    describe=None,
-) -> int:
-    def validate(text: str) -> bool | str:
-        try:
-            value = int(text)
-        except ValueError:
-            return "Enter a whole number"
-        if not low <= value <= high:
-            return f"Enter a number from {low} to {high}"
-        return True
 
-    extra = {"rprompt": _live_hint(describe, low, high)} if describe else {}
-    return int(
-        _ask(
-            questionary.text(
-                message, default=str(default), validate=validate, style=STYLE, **extra
-            )
-        )
-    )
-
-
-def _gradient_line(line: str) -> Text:
-    """One banner row, its colour sliding left to right across the glyphs."""
-    text = Text()
-    for char, rgb in zip(line, gradient_colors(len(line), GRADIENT_START, GRADIENT_END)):
-        text.append(char, style=f"rgb({rgb[0]},{rgb[1]},{rgb[2]})")
-    return text
-
-
-def _pause(message: str = "  Press any key to return to the menu…") -> None:
-    try:
-        questionary.press_any_key_to_continue(message, style=STYLE).ask()
-    except Exception:
-        pass  # never let a cosmetic pause break a completed run
 
 
 def _banner() -> None:
@@ -165,122 +80,15 @@ def _banner() -> None:
     console.print()
 
 
-CARD_LINES_PER_ROW = 5  # four card lines plus the gap beneath
-
-
 def _choose_operation() -> str:
-    """A grid of cards, driven by the arrow keys or a number.
-
-    questionary only draws a vertical list, so this is a small prompt_toolkit
-    application of its own. All the geometry lives in `menu`.
-    """
-    items = menu_items()
-    state = {"selected": 0}
-
-    def terminal_width() -> int:
-        return get_app().output.get_size().columns
-
-    def grid():
-        fragments: list[tuple[str, str]] = []
-        for line in render_grid(items, state["selected"], terminal_width()):
-            fragments.extend(line)
-            fragments.append(("", "\n"))
-        return fragments[:-1]
-
-    def grid_height() -> Dimension:
-        rows = -(-len(items) // columns_for(terminal_width()))
-        return Dimension.exact(rows * CARD_LINES_PER_ROW - 1)
-
-    bindings = KeyBindings()
-
-    for key, direction in (
-        ("left", "left"),
-        ("right", "right"),
-        ("up", "up"),
-        ("down", "down"),
-    ):
-        @bindings.add(key)
-        def _(event, direction=direction) -> None:
-            state["selected"] = next_index(
-                state["selected"],
-                direction,
-                count=len(items),
-                columns=columns_for(terminal_width()),
-            )
-
-    @bindings.add("tab")
-    def _(event) -> None:
-        state["selected"] = (state["selected"] + 1) % len(items)
-
-    @bindings.add("s-tab")
-    def _(event) -> None:
-        state["selected"] = (state["selected"] - 1) % len(items)
-
-    for position in range(len(items)):
-        @bindings.add(str(position + 1))
-        def _(event, position=position) -> None:
-            state["selected"] = position
-            event.app.exit(result=items[position].key)
-
-    @bindings.add("enter")
-    def _(event) -> None:
-        event.app.exit(result=items[state["selected"]].key)
-
-    @bindings.add("c-c")
-    @bindings.add("escape")
-    def _(event) -> None:
-        event.app.exit(result=None)
-
-    application = Application(
-        layout=Layout(
-            HSplit(
-                [
-                    Window(
-                        FormattedTextControl(
-                            lambda: [("bold", "  What would you like to do?")]
-                        ),
-                        height=Dimension.exact(2),
-                    ),
-                    Window(FormattedTextControl(grid), height=grid_height),
-                    Window(
-                        FormattedTextControl(
-                            lambda: [
-                                (
-                                    "fg:#6e7681",
-                                    f"\n  ↑ ↓ ← → move    1-{len(items)} jump straight"
-                                    " there    enter select    esc quit",
-                                )
-                            ]
-                        ),
-                        height=Dimension.exact(2),
-                    ),
-                ]
-            )
-        ),
-        key_bindings=bindings,
-        full_screen=False,
-        erase_when_done=True,
-    )
-
-    chosen = application.run()
-    if chosen is None:
-        raise Cancelled
-
-    picked = next(item for item in items if item.key == chosen)
+    chosen = choose_from_cards(console, menu_items(), "What would you like to do?")
+    picked = next(item for item in menu_items() if item.key == chosen)
     console.print(f"[#00b894]?[/#00b894] [bold]Operation:[/bold] [#0984e3]{picked.title}[/#0984e3]")
     return chosen
 
 
 def _ask_path(message: str, default: str | None = None) -> Path:
-    """Prompt for a path, forgiving the ways terminals mangle one."""
-    kwargs = {"style": STYLE}
-    if default is not None:
-        kwargs["default"] = default
-    while True:
-        try:
-            return clean_path_input(_ask(questionary.path(message, **kwargs)))
-        except ValueError:
-            console.print("[red]Please enter a path.[/red]")
+    return _shared_ask_path(console, message, default)
 
 
 def _choose_source() -> Path:
