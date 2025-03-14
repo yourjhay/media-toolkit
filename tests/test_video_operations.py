@@ -155,3 +155,26 @@ def test_a_precise_trim_may_use_absolute_times():
 
     assert float(pairs["-ss"]) == 10.0
     assert float(pairs["-to"]) == 20.0
+
+
+def test_a_re_encoding_conversion_is_given_a_bitrate_when_one_is_known():
+    """Left to itself the hardware encoder picks a very generous rate."""
+    args = build_convert_args(SRC, OUT, plan_conversion("vp9", "opus", "mp4"),
+                              video_bitrate=6_000_000)
+
+    assert _pairs(args)["-b:v"] == "6000000"
+
+
+def test_a_repackage_is_never_given_a_bitrate():
+    """Nothing is being encoded, so a rate would be meaningless."""
+    args = build_convert_args(SRC, OUT, plan_conversion("h264", "aac", "mp4"),
+                              video_bitrate=6_000_000)
+
+    assert "-b:v" not in args
+
+
+def test_an_unknown_bitrate_leaves_the_encoder_to_choose():
+    args = build_convert_args(SRC, OUT, plan_conversion("vp9", "opus", "mp4"),
+                              video_bitrate=None)
+
+    assert "-b:v" not in args

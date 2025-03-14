@@ -19,6 +19,7 @@ class MediaInfo:
     video_codec: str | None = None
     audio_codec: str | None = None
     audio_bitrate: int | None = None
+    video_bitrate: int | None = None
     error: str | None = None
 
     @property
@@ -71,9 +72,17 @@ def probe_media(path: Path, runner: Callable[[list[str]], str] | None = None) ->
             info.video_codec = stream.get("codec_name")
             info.width = _number(stream.get("width"), int)
             info.height = _number(stream.get("height"), int)
+            info.video_bitrate = _number(stream.get("bit_rate"), int)
         elif kind == "audio" and info.audio_codec is None:
             info.audio_codec = stream.get("codec_name")
             info.audio_bitrate = _number(stream.get("bit_rate"), int)
+
+    if info.video_bitrate is None and info.video_codec:
+        # Plenty of files report only an overall rate. The video is nearly all
+        # of it, so the container figure less the audio is a fair stand-in.
+        overall = _number((data.get("format") or {}).get("bit_rate"), int)
+        if overall:
+            info.video_bitrate = max(1, overall - (info.audio_bitrate or 0))
 
     return info
 

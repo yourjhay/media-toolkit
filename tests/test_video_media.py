@@ -158,3 +158,45 @@ def test_rubbish_lines_are_ignored():
     assert reader.feed("speed=N/A") is None
     update = reader.feed("progress=continue")
     assert update.speed is None
+
+
+def test_the_video_bitrate_is_read_when_the_stream_reports_it(tmp_path):
+    path = tmp_path / "clip.mp4"
+    path.write_bytes(b"x")
+    payload = {
+        "format": {"duration": "10", "bit_rate": "3200000"},
+        "streams": [
+            {"codec_type": "video", "codec_name": "av1", "bit_rate": "3100000"},
+            {"codec_type": "audio", "codec_name": "aac", "bit_rate": "128000"},
+        ],
+    }
+
+    info = probe_media(path, runner=_runner(payload))
+
+    assert info.video_bitrate == 3_100_000
+
+
+def test_a_missing_video_bitrate_falls_back_to_the_container_minus_the_audio(tmp_path):
+    """Many files only report an overall rate; the video is nearly all of it."""
+    path = tmp_path / "clip.mp4"
+    path.write_bytes(b"x")
+    payload = {
+        "format": {"duration": "10", "bit_rate": "3200000"},
+        "streams": [
+            {"codec_type": "video", "codec_name": "av1"},
+            {"codec_type": "audio", "codec_name": "aac", "bit_rate": "128000"},
+        ],
+    }
+
+    info = probe_media(path, runner=_runner(payload))
+
+    assert info.video_bitrate == 3_200_000 - 128_000
+
+
+def test_no_bitrate_anywhere_is_none_rather_than_a_guess(tmp_path):
+    path = tmp_path / "clip.mp4"
+    path.write_bytes(b"x")
+
+    info = probe_media(path, runner=_runner({"format": {}, "streams": []}))
+
+    assert info.video_bitrate is None

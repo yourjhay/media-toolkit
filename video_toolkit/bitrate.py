@@ -49,3 +49,22 @@ def target_bitrate(
         )
 
     return video_bitrate
+
+
+# H.264 needs roughly twice the bits of AV1 or VP9 for comparable quality, so
+# matching the source rate would visibly degrade it and tripling it wastes
+# space for no gain.
+_REENCODE_FACTOR = 2.0
+_REENCODE_CEILING = 20_000_000
+
+
+def reencode_bitrate(source_bitrate: int | None) -> int | None:
+    """What to give H.264 when re-encoding a more efficient codec.
+
+    None means we do not know the source rate, in which case the encoder is
+    left to choose — better an unconstrained guess than a confident wrong one.
+    """
+    if not source_bitrate or source_bitrate <= 0:
+        return None
+    scaled = int(source_bitrate * _REENCODE_FACTOR)
+    return max(MIN_VIDEO_BITRATE, min(scaled, _REENCODE_CEILING))

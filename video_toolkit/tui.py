@@ -26,7 +26,7 @@ from shared.prompts import ask_path as _shared_ask_path
 from shared.prompts import pause as _pause
 from shared.settings import recall_path, remember_path
 
-from .containers import plan_conversion, supported_targets
+from .containers import playback_warning, plan_conversion, supported_targets
 from .download import OK as DOWNLOAD_OK
 from .download import download, ffmpeg_available, probe
 from .failures import failure_hint, is_transient
@@ -288,14 +288,32 @@ def _local_round(operation: str, ffmpeg: bool) -> bool:
                 style=STYLE,
             )
         )
-        plan = plan_conversion(info.video_codec, info.audio_codec, target, hardware=True)
+        force = False
+        warning = playback_warning(info.video_codec, target)
+        if warning:
+            console.print(f"  [yellow]{warning}[/yellow]\n")
+            force = _ask(
+                questionary.select(
+                    "Video:",
+                    choices=[
+                        Choice("Re-encode to H.264  —  plays everywhere", True),
+                        Choice("Copy as-is  —  instant and lossless, may not play", False),
+                    ],
+                    style=STYLE,
+                )
+            )
+
+        plan = plan_conversion(
+            info.video_codec, info.audio_codec, target,
+            hardware=True, force_video_encode=force,
+        )
         if plan.lossless:
             console.print("  [green]Repackage only — instant, and the video is untouched.[/green]")
         else:
             console.print(f"  [yellow]Re-encoding needed.[/yellow] [dim]{plan.reason}[/dim]")
         console.print()
         describe = f"Converting to {target}"
-        settings = {"target_ext": target}
+        settings = {"target_ext": target, "force_video_encode": force}
 
     elif operation == "compress":
         target_bytes = _ask_target_size()

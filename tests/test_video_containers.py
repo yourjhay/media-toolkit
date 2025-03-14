@@ -102,3 +102,84 @@ def test_every_container_declares_what_to_encode_to(container):
 
 def test_the_offered_targets_are_the_ones_we_know():
     assert set(supported_targets()) == set(CONTAINERS)
+
+
+# --- legal in the container, but will it play? ------------------------------
+
+def test_av1_in_mp4_is_flagged_even_though_it_is_allowed():
+    """Legal in the container is not the same question as plays on your machine."""
+    from video_toolkit.containers import playback_warning
+
+    warning = playback_warning("av1", "mp4")
+
+    assert warning is not None
+    assert "av1" in warning.lower()
+
+
+def test_only_a_copyable_codec_is_flagged():
+    """The warning is about a choice. Where there is no choice there is no warning.
+
+    mp4 accepts av1, so it can be copied and the question is real. mov accepts
+    none of the web codecs, so they are re-encoded regardless and saying
+    anything would just be noise.
+    """
+    from video_toolkit.containers import playback_warning
+
+    assert playback_warning("av1", "mp4") is not None
+    for codec in ("av1", "vp9", "vp8"):
+        assert playback_warning(codec, "mov") is None
+    for codec in ("vp9", "vp8"):
+        assert playback_warning(codec, "mp4") is None
+
+
+def test_h264_and_hevc_raise_no_concern():
+    from video_toolkit.containers import playback_warning
+
+    assert playback_warning("h264", "mp4") is None
+    assert playback_warning("hevc", "mov") is None
+
+
+def test_nothing_is_flagged_for_mkv_or_webm():
+    """Those are opened with players that handle everything anyway."""
+    from video_toolkit.containers import playback_warning
+
+    assert playback_warning("av1", "mkv") is None
+    assert playback_warning("vp9", "webm") is None
+
+
+def test_a_codec_no_container_here_accepts_is_not_flagged():
+    from video_toolkit.containers import playback_warning
+
+    assert playback_warning("theora", "mp4") is None
+
+
+def test_the_warning_names_something_that_does_play_it():
+    from video_toolkit.containers import playback_warning
+
+    assert "VLC" in playback_warning("av1", "mp4")
+
+
+def test_forcing_an_encode_overrides_a_copy():
+    plan = plan_conversion("av1", "aac", "mp4", force_video_encode=True)
+
+    assert plan.video == ENCODE
+    assert plan.video_encoder in ("libx264", "h264_videotoolbox")
+    assert not plan.lossless
+
+
+def test_forcing_an_encode_leaves_the_audio_decision_alone():
+    plan = plan_conversion("av1", "aac", "mp4", force_video_encode=True)
+
+    assert plan.audio == COPY
+
+
+def test_forcing_says_why_in_the_reason():
+    plan = plan_conversion("av1", "aac", "mp4", force_video_encode=True)
+
+    assert "play" in plan.reason.lower()
+
+
+def test_not_forcing_still_copies_what_it_can():
+    plan = plan_conversion("av1", "aac", "mp4")
+
+    assert plan.video == COPY

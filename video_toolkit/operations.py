@@ -41,10 +41,17 @@ def _finish(args: list[str], out: Path) -> list[str]:
     return args
 
 
-def build_convert_args(src: Path, out: Path, plan: ConversionPlan) -> list[str]:
+def build_convert_args(
+    src: Path,
+    out: Path,
+    plan: ConversionPlan,
+    video_bitrate: int | None = None,
+) -> list[str]:
     args = _base(src)
     if plan.video is not None:
         args += ["-c:v", "copy" if plan.video == COPY else plan.video_encoder]
+        if plan.video != COPY and video_bitrate:
+            args += ["-b:v", str(video_bitrate)]
     if plan.audio is not None:
         args += ["-c:a", "copy" if plan.audio == COPY else plan.audio_encoder]
     return _finish(args, out)

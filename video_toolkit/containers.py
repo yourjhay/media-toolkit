@@ -56,6 +56,30 @@ _SOFTWARE_ENCODERS = {
 _HARDWARE_ENCODERS = {"h264": "h264_videotoolbox", "hevc": "hevc_videotoolbox"}
 
 
+# Codecs an Apple player is unlikely to play, even where the container accepts
+# them. mp4 permits AV1 quite legally; QuickTime still will not open it.
+_AWKWARD_ON_APPLE = {"av1", "vp9", "vp8"}
+_APPLE_CONTAINERS = {"mp4", "mov"}
+
+
+def playback_warning(video_codec: str | None, target_ext: str) -> str | None:
+    """Why a legal conversion might still produce something that will not play.
+
+    Only raised where the codec could otherwise be copied across: if it is
+    being re-encoded anyway there is nothing to warn about.
+    """
+    target = (target_ext or "").lower().lstrip(".")
+    if target not in _APPLE_CONTAINERS or video_codec not in _AWKWARD_ON_APPLE:
+        return None
+    if video_codec not in CONTAINERS[target]["video"]:
+        return None  # already being re-encoded; no decision to make
+
+    return (
+        f"{video_codec} can be copied into {target} without re-encoding, but "
+        f"Apple's own players do not open it. VLC and IINA will."
+    )
+
+
 @dataclass
 class ConversionPlan:
     video: str | None
@@ -89,8 +113,13 @@ def plan_conversion(
     audio_codec: str | None,
     target_ext: str,
     hardware: bool = False,
+    force_video_encode: bool = False,
 ) -> ConversionPlan:
-    """What has to happen to put these streams into `target_ext`."""
+    """What has to happen to put these streams into `target_ext`.
+
+    `force_video_encode` re-encodes the video even when it could be copied,
+    which is how a caller chooses a file that plays over one that is lossless.
+    """
     target = target_ext.lower().lstrip(".")
     if target not in CONTAINERS:
         raise ValueError(
@@ -102,6 +131,11 @@ def plan_conversion(
 
     if video_codec is None:
         video_action, video_encoder = None, None
+    elif video_codec in spec["video"] and force_video_encode:
+        wanted = spec["default_video"]
+        video_action = ENCODE
+        video_encoder = _encoder_for(wanted, hardware)
+        notes.append(f"{video_codec} re-encoded to {wanted} so it will play")
     elif video_codec in spec["video"]:
         video_action, video_encoder = COPY, None
         notes.append(f"{video_codec} video carried across untouched")

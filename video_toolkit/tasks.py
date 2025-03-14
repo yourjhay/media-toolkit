@@ -7,7 +7,7 @@ from typing import Callable
 
 from shared.format import human_bytes
 
-from .bitrate import target_bitrate
+from .bitrate import reencode_bitrate, target_bitrate
 from .containers import plan_conversion
 from .media import probe_media
 from .operations import (
@@ -54,6 +54,7 @@ def convert_video(
     target_ext: str,
     overwrite: bool = False,
     hardware: bool = True,
+    force_video_encode: bool = False,
     on_progress: Callable | None = None,
     probe: Callable | None = None,
     runner: Callable | None = None,
@@ -72,13 +73,17 @@ def convert_video(
         return EncodeResult(src, None, FAILED, src.stat().st_size, 0, info.error)
 
     try:
-        plan = plan_conversion(info.video_codec, info.audio_codec, target, hardware=hardware)
+        plan = plan_conversion(
+            info.video_codec, info.audio_codec, target,
+            hardware=hardware, force_video_encode=force_video_encode,
+        )
     except ValueError as exc:
         return EncodeResult(src, None, FAILED, src.stat().st_size, 0, str(exc))
 
     dest_dir.mkdir(parents=True, exist_ok=True)
     ok, message = run_ffmpeg(
-        build_convert_args(src, out, plan), info.duration, on_progress, runner
+        build_convert_args(src, out, plan, reencode_bitrate(info.video_bitrate)),
+        info.duration, on_progress, runner,
     )
     return _finish(src, out, ok, message, plan.reason, plan.lossless)
 
