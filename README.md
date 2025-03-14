@@ -119,6 +119,21 @@ Already have a copy? Just `cd` into it and run `./setup.sh`.
 This creates a self-contained `.venv/` inside the folder, shared by both
 tools. Nothing is installed system-wide, and `setup.sh` is safe to re-run.
 
+It then offers to put `imgkit` and `vidkit` on your PATH, by symlinking them
+into `~/.local/bin` — no `sudo`, and it tells you if that folder is not on your
+PATH yet. If something else already owns either name, it says so and leaves it
+alone rather than replacing it.
+
+```bash
+./setup.sh --link                   # link without being asked
+./setup.sh --no-link                # skip it without being asked
+./setup.sh --bin-dir /usr/local/bin # somewhere else
+./setup.sh --link-only              # already set up; just link
+```
+
+Piped into a shell or run in CI there is nobody to answer the prompt, so it
+does not link and does not hang — it says to re-run with `--link`.
+
 ffmpeg is the one optional extra. imgkit never needs it; vidkit needs it to
 merge high-quality streams, convert audio to MP3, and do anything with local
 video files:
@@ -134,11 +149,10 @@ brew install ffmpeg
 ./vidkit     # video
 ```
 
-Optionally put them on your PATH:
+Or, if you did not let `setup.sh` link them:
 
 ```bash
-ln -s "$PWD/imgkit" /usr/local/bin/imgkit
-ln -s "$PWD/vidkit" /usr/local/bin/vidkit
+./setup.sh --link-only
 ```
 
 ## How the compressor works
