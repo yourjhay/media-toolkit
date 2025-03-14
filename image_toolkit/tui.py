@@ -30,10 +30,11 @@ from .banner import (
     gradient_colors,
     subtitle_for,
 )
-from .core import FAILED, OK, SHORT, SKIPPED, probe_quality_sizes
+from .core import FAILED, KEEP, OK, SAFE, SHORT, SKIPPED, STRIP, probe_quality_sizes
 from .discovery import find_images
 from .estimate import QUALITY_ANCHORS, build_quality_model, compress_target
 from .info import FileInfo, FolderInfo, inspect_source
+from .sizing import target_size
 from .jobs import Summary, run_batch
 from .menu import columns_for, next_index, render_grid
 from .planning import (
@@ -233,8 +234,8 @@ def _choose_operation() -> str:
                             lambda: [
                                 (
                                     "fg:#6e7681",
-                                    "\n  ↑ ↓ ← → move    1-4 jump straight there"
-                                    "    enter select    esc quit",
+                                    f"\n  ↑ ↓ ← → move    1-{len(items)} jump straight"
+                                    " there    enter select    esc quit",
                                 )
                             ]
                         ),
@@ -338,7 +339,83 @@ def _quality_describer(files: list[Path], probe_format: str):
     return lambda quality: format_estimate(model.estimate(quality), model.source_bytes)
 
 
+def _ask_metadata() -> str:
+    """How much of the camera's own record to carry into the output."""
+    return _ask(
+        questionary.select(
+            "Photo metadata:",
+            choices=[
+                Choice("Keep camera and date, drop location", SAFE),
+                Choice("Strip everything  —  safest to share", STRIP),
+                Choice("Keep everything, including location", KEEP),
+            ],
+            style=STYLE,
+        )
+    )
+
+
+def _resize_estimate(files: list[Path], options: dict) -> str | None:
+    """One probe at the chosen dimensions, scaled to the batch.
+
+    Only JPEG sources are measured; PNG is lossless and its size after a resize
+    depends on the picture in ways a single sample would misrepresent.
+    """
+    sample = median_by_size(files)
+    if sample is None or sample.suffix.lower() not in (".jpg", ".jpeg"):
+        return None
+
+    info = inspect_source(sample, set())
+    if not isinstance(info, FileInfo) or not info.dimensions:
+        return None
+
+    spec = {k: v for k, v in options.items() if k in ("max_width", "max_height", "percent")}
+    total = sum(f.stat().st_size for f in files)
+    try:
+        target = target_size(info.dimensions, **spec)
+        with console.status(f"[dim]Measuring {sample.name}…[/dim]", spinner="dots"):
+            measured = probe_quality_sizes(
+                sample, "jpg", (RESIZE_QUALITY,),
+                metadata=options.get("metadata", SAFE), resize_to=target,
+            )
+    except Exception:
+        return None
+
+    scaled = round(measured[RESIZE_QUALITY] * total / sample.stat().st_size)
+    return f"{format_estimate(scaled, total)}   [{target[0]} × {target[1]}]"
+
+
+RESIZE_QUALITY = 92
+
+RESIZE_PRESETS = (
+    ("Fit within 1920 × 1920", "large screens and web", 1920),
+    ("Fit within 1200 × 1200", "email and documents", 1200),
+    ("Fit within 800 × 800", "thumbnails and previews", 800),
+)
+
+
+def _collect_resize_options() -> dict:
+    choices = [
+        Choice(f"{label}   —   {why}", ("box", size)) for label, why, size in RESIZE_PRESETS
+    ]
+    choices.append(Choice("Percentage of the original", ("percent", None)))
+    choices.append(Choice("Custom maximum width and height", ("custom", None)))
+
+    kind, size = _ask(questionary.select("Resize to:", choices=choices, style=STYLE))
+
+    if kind == "box":
+        return {"max_width": size, "max_height": size}
+    if kind == "percent":
+        return {"percent": _ask_int("Scale to what percent of the original? (1-100):", 50, 1, 100)}
+    return {
+        "max_width": _ask_int("Maximum width in pixels:", 1920, 1, 20000),
+        "max_height": _ask_int("Maximum height in pixels:", 1920, 1, 20000),
+    }
+
+
 def _collect_options(operation: str, files: list[Path]) -> dict:
+    if operation == "resize":
+        return _collect_resize_options()
+
     if operation == "heic":
         fmt = _ask(
             questionary.select(
@@ -383,6 +460,7 @@ def _preview(
     operation: str,
     options: dict,
     renamed: list[tuple[Path, Path]],
+    estimate: str | None = None,
 ) -> None:
     total = sum(f.stat().st_size for f in files)
     table = Table(show_header=False, box=None, padding=(0, 2))
@@ -391,6 +469,8 @@ def _preview(
     table.add_row("Output", str(dest_dir))
     for key, value in options.items():
         table.add_row(key.replace("_", " ").capitalize(), str(value))
+    if estimate:
+        table.add_row("Estimated output", estimate)
     if renamed:
         table.add_row("Renamed", f"[yellow]{len(renamed)}[/yellow] (same name in another folder)")
     console.print(Panel(table, title=OPERATIONS[operation], border_style="cyan"))
@@ -461,6 +541,8 @@ def _one_round() -> bool:
         return True
 
     options = _collect_options(operation, files)
+    options["metadata"] = _ask_metadata()
+    estimate = _resize_estimate(files, options) if operation == "resize" else None
     options["overwrite"] = _ask(
         questionary.confirm("Overwrite files already in the output folder?", default=False, style=STYLE)
     )
@@ -473,7 +555,7 @@ def _one_round() -> bool:
     outputs = assign_output_paths(files, dest_dir, name_of)
     renamed = [(src, out) for src, out in outputs.items() if out.name != name_of(src)]
 
-    _preview(files, dest_dir, operation, options, renamed)
+    _preview(files, dest_dir, operation, options, renamed, estimate)
     if not _ask(questionary.confirm(f"Process {len(files)} file(s)?", default=True, style=STYLE)):
         console.print("[dim]Cancelled.[/dim]\n")
         return True

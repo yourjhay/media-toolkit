@@ -99,3 +99,30 @@ def touch(tmp_path):
         return path
 
     return _touch
+
+
+@pytest.fixture
+def exif_with_location():
+    """EXIF as a phone writes it: camera, date, and GPS coordinates."""
+    img = Image.new("RGB", (2, 2))
+    exif = img.getexif()
+    exif[0x010F] = "Apple"
+    exif[0x0110] = "iPhone 15 Pro"
+    exif[0x0132] = "2026:09:21 14:00:00"
+    gps = exif.get_ifd(0x8825)
+    gps[1], gps[2] = "N", (14.0, 35.0, 0.0)
+    gps[3], gps[4] = "E", (121.0, 0.0, 0.0)
+    return exif.tobytes()
+
+
+@pytest.fixture
+def read_metadata():
+    """(number of EXIF tags, number of GPS fields) in a written file."""
+
+    def _read(path):
+        with Image.open(path) as img:
+            exif = img.getexif()
+            gps = exif.get_ifd(0x8825)
+            return len(exif), len(gps) if gps else 0
+
+    return _read

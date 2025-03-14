@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Callable
 
 
-from .core import compress, convert_heic, convert_to_webp
+from .core import compress, convert_heic, convert_to_webp, resize
 from .discovery import HEIC_EXTS, RASTER_EXTS
 from .jobs import Operation
 from .menu import MenuItem
@@ -26,18 +26,21 @@ QUIT = "__quit__"
 OPERATIONS: dict[str, str] = {
     "heic": "HEIC / HEIF  →  JPG or PNG",
     "webp": "JPG / PNG    →  WebP",
+    "resize": "Resize JPG / PNG",
     "compress": "Compress JPG / PNG to a target size",
 }
 
 _EXTENSIONS: dict[str, set[str]] = {
     "heic": HEIC_EXTS,
     "webp": RASTER_EXTS,
+    "resize": RASTER_EXTS,
     "compress": RASTER_EXTS,
 }
 
 _FUNCTIONS = {
     "heic": convert_heic,
     "webp": convert_to_webp,
+    "resize": resize,
     "compress": compress,
 }
 
@@ -104,6 +107,7 @@ def menu_items() -> list[MenuItem]:
     return [
         MenuItem("heic", "HEIC / HEIF", "→ JPG or PNG", "#00d6aa"),
         MenuItem("webp", "JPG / PNG", "→ WebP", "#4aa8ff"),
+        MenuItem("resize", "Resize", "scale down to fit", "#c77dff"),
         MenuItem("compress", "Compress", "shrink to a target size", "#f0a02a"),
         MenuItem(QUIT, "Quit", "leave the toolkit", "#8b949e"),
     ]
@@ -183,7 +187,7 @@ def output_name(operation: str, src: Path, fmt: str | None = None) -> str:
         return f"{src.stem}.{(fmt or 'jpg').lower().lstrip('.')}"
     if operation == "webp":
         return f"{src.stem}.webp"
-    if operation == "compress":
+    if operation in ("compress", "resize"):
         return src.name  # same format in, same out
     raise ValueError(f"Unknown operation: {operation!r}")
 

@@ -1,9 +1,10 @@
 # image toolkit
 
-An interactive terminal tool for three jobs:
+An interactive terminal tool for four jobs:
 
 - **HEIC / HEIF → JPG or PNG** — iPhone photos into something everything can open
 - **JPG / PNG → WebP** — lossy or lossless, transparency preserved
+- **Resize JPG / PNG** — scale down to fit a box or a percentage
 - **Compress JPG / PNG** — shrink a file by a target percentage
 
 No GUI, no flags to memorise. Run it, answer the prompts with the arrow keys.
@@ -70,6 +71,39 @@ escape quits. The selected card is drawn with a heavy border as well as a
 brighter colour, so the selection is still visible over SSH, in a pipe, or in
 any terminal without truecolour. Below about 55 columns the grid drops to a
 single column.
+
+## Your photos know where you live
+
+Phones write GPS coordinates into every picture. Converting a photo and posting
+it can publish the place it was taken, which for a photo shot at home is your
+home address.
+
+Every operation asks what to do with that record:
+
+| Choice | Camera, lens, date | Location |
+|---|---|---|
+| Keep camera and date, drop location *(default)* | kept | **removed** |
+| Strip everything | removed | **removed** |
+| Keep everything | kept | kept |
+
+The default drops location, because publishing it should take a deliberate
+choice rather than an oversight. The orientation tag is always removed, in
+every mode — the rotation has already been applied to the pixels, so leaving
+the tag would rotate the image a second time.
+
+## Resize
+
+Pick a preset box (1920, 1200 or 800), a percentage, or your own maximum width
+and height. The aspect ratio is always preserved and the image is **never
+enlarged** — asking for 200% of an 800px photo gives you the 800px photo back,
+because enlarging only invents detail that was never captured.
+
+Quality is fixed at 92, deliberately high: downscaling has already discarded
+detail and there is no sense throwing away more in the same pass. Run the
+compressor afterwards when you want to trade quality for size on purpose.
+
+Before you confirm, the preview measures one real file at your chosen
+dimensions and shows the estimated total.
 
 ## Bulk
 

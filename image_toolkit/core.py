@@ -14,7 +14,17 @@ from typing import Iterable
 import pillow_heif
 from PIL import Image, ImageOps
 
+from .sizing import target_size
+
 pillow_heif.register_heif_opener()
+
+STRIP = "strip"
+SAFE = "safe"
+KEEP = "keep"
+METADATA_MODES = (STRIP, SAFE, KEEP)
+
+_GPS_IFD = 0x8825
+_ORIENTATION = 274
 
 OK = "ok"
 SHORT = "short"
@@ -70,17 +80,58 @@ def _load_upright(path: Path) -> Image.Image:
         return upright
 
 
-def _save(img: Image.Image, out: Path, fmt: str, quality: int) -> None:
+def check_metadata_mode(mode: str) -> str:
+    """Reject an unknown mode up front.
+
+    A bad mode is a caller's mistake, not one file's problem, so it raises
+    rather than turning into a failed result for every image in the batch.
+    """
+    if mode not in METADATA_MODES:
+        raise ValueError(f"metadata must be one of {METADATA_MODES}, got {mode!r}")
+    return mode
+
+
+def metadata_bytes(img: Image.Image, mode: str) -> bytes | None:
+    """The EXIF block to write out, according to the chosen mode.
+
+    `strip` writes none. `safe` keeps the camera, lens and date but drops the
+    GPS coordinates, which is what makes a photo safe to publish. `keep` keeps
+    the lot, including where it was taken.
+
+    The orientation tag is removed in every mode: the rotation has already been
+    applied to the pixels, so leaving the tag would rotate the image twice.
+    """
+    check_metadata_mode(mode)
+    if mode == STRIP:
+        return None
+
+    raw = img.info.get("exif")
+    if not raw:
+        return None
+
+    exif = Image.Exif()
+    exif.load(raw)
+    exif.pop(_ORIENTATION, None)
+    if mode == SAFE:
+        exif.pop(_GPS_IFD, None)
+    return exif.tobytes() if len(exif) else None
+
+
+def _save(
+    img: Image.Image,
+    out: Path,
+    fmt: str,
+    quality: int,
+    metadata: str = SAFE,
+) -> None:
+    exif = metadata_bytes(img, metadata)
+    extra = {"exif": exif} if exif else {}
     if fmt in _JPEG_ALIASES:
         if img.mode not in ("RGB", "L"):
             img = img.convert("RGB")
-        kwargs = {"quality": quality, "optimize": True, "progressive": True}
-        exif = img.info.get("exif")
-        if exif:
-            kwargs["exif"] = exif
-        img.save(out, "JPEG", **kwargs)
+        img.save(out, "JPEG", quality=quality, optimize=True, progressive=True, **extra)
     else:
-        img.save(out, "PNG", optimize=True)
+        img.save(out, "PNG", optimize=True, **extra)
 
 
 def convert_heic(
@@ -90,6 +141,7 @@ def convert_heic(
     quality: int = 90,
     overwrite: bool = False,
     out_path: Path | None = None,
+    metadata: str = SAFE,
 ) -> Result:
     """Convert one HEIC/HEIF file to JPEG or PNG.
 
@@ -98,6 +150,7 @@ def convert_heic(
     """
     src, dest_dir = Path(src), Path(dest_dir)
     fmt = _normalise_format(fmt)
+    check_metadata_mode(metadata)
     out = Path(out_path) if out_path is not None else dest_dir / f"{src.stem}.{fmt}"
     src_bytes = src.stat().st_size
 
@@ -107,7 +160,7 @@ def convert_heic(
     try:
         out.parent.mkdir(parents=True, exist_ok=True)
         img = _load_upright(src)
-        _save(img, out, fmt, quality)
+        _save(img, out, fmt, quality, metadata)
     except Exception as exc:
         return Result(src, None, FAILED, src_bytes, 0, f"{type(exc).__name__}: {exc}")
 
@@ -121,9 +174,11 @@ def convert_to_webp(
     lossless: bool = False,
     overwrite: bool = False,
     out_path: Path | None = None,
+    metadata: str = SAFE,
 ) -> Result:
     """Convert one image to WebP, keeping any alpha channel."""
     src, dest_dir = Path(src), Path(dest_dir)
+    check_metadata_mode(metadata)
     out = Path(out_path) if out_path is not None else dest_dir / f"{src.stem}.webp"
     src_bytes = src.stat().st_size
 
@@ -135,7 +190,9 @@ def convert_to_webp(
         img = _load_upright(src)
         if img.mode not in ("RGB", "RGBA"):
             img = img.convert("RGBA" if "A" in img.getbands() else "RGB")
-        img.save(out, "WEBP", quality=quality, lossless=lossless, method=6)
+        exif = metadata_bytes(img, metadata)
+        extra = {"exif": exif} if exif else {}
+        img.save(out, "WEBP", quality=quality, lossless=lossless, method=6, **extra)
     except Exception as exc:
         return Result(src, None, FAILED, src_bytes, 0, f"{type(exc).__name__}: {exc}")
 
@@ -147,26 +204,28 @@ _MAX_JPEG_QUALITY = 95
 _PNG_COLOR_STEPS = (256, 128, 64, 32, 16, 8)
 
 
-def _encode_jpeg(img: Image.Image, quality: int) -> bytes:
+def _encode_jpeg(img: Image.Image, quality: int, exif: bytes | None = None) -> bytes:
     buf = io.BytesIO()
     if img.mode not in ("RGB", "L"):
         img = img.convert("RGB")
-    img.save(buf, "JPEG", quality=quality, optimize=True, progressive=True)
+    extra = {"exif": exif} if exif else {}
+    img.save(buf, "JPEG", quality=quality, optimize=True, progressive=True, **extra)
     return buf.getvalue()
 
 
-def _encode_png(img: Image.Image, colors: int | None) -> bytes:
+def _encode_png(img: Image.Image, colors: int | None, exif: bytes | None = None) -> bytes:
     buf = io.BytesIO()
     if colors is not None:
         # FASTOCTREE is the one quantizer that handles an alpha channel,
         # so transparency survives the palette reduction.
         method = Image.Quantize.FASTOCTREE if img.mode == "RGBA" else Image.Quantize.MEDIANCUT
         img = img.quantize(colors=colors, method=method)
-    img.save(buf, "PNG", optimize=True)
+    extra = {"exif": exif} if exif else {}
+    img.save(buf, "PNG", optimize=True, **extra)
     return buf.getvalue()
 
 
-def _squeeze_jpeg(img: Image.Image, target_bytes: int) -> tuple[bytes, int]:
+def _squeeze_jpeg(img: Image.Image, target_bytes: int, exif: bytes | None = None) -> tuple[bytes, int]:
     """Highest JPEG quality whose encoding fits in `target_bytes`.
 
     Binary search over the quality scale: ~7 encodes rather than 75.
@@ -176,23 +235,23 @@ def _squeeze_jpeg(img: Image.Image, target_bytes: int) -> tuple[bytes, int]:
     low, high = _MIN_JPEG_QUALITY, _MAX_JPEG_QUALITY
     while low <= high:
         mid = (low + high) // 2
-        data = _encode_jpeg(img, mid)
+        data = _encode_jpeg(img, mid, exif)
         if len(data) <= target_bytes:
             best = (data, mid)
             low = mid + 1
         else:
             high = mid - 1
-    return best if best is not None else (_encode_jpeg(img, _MIN_JPEG_QUALITY), _MIN_JPEG_QUALITY)
+    return best if best is not None else (_encode_jpeg(img, _MIN_JPEG_QUALITY, exif), _MIN_JPEG_QUALITY)
 
 
-def _squeeze_png(img: Image.Image, target_bytes: int) -> tuple[bytes, int | None]:
+def _squeeze_png(img: Image.Image, target_bytes: int, exif: bytes | None = None) -> tuple[bytes, int | None]:
     """Least aggressive palette reduction that fits, else the most aggressive.
 
     PNG is lossless and has no quality dial, so the only lever is colour count.
     """
     smallest: tuple[bytes, int | None] | None = None
     for colors in (None,) + _PNG_COLOR_STEPS:
-        data = _encode_png(img, colors)
+        data = _encode_png(img, colors, exif)
         if len(data) <= target_bytes:
             return data, colors
         if smallest is None or len(data) < len(smallest[0]):
@@ -206,6 +265,7 @@ def compress(
     reduce_pct: float = 50,
     overwrite: bool = False,
     out_path: Path | None = None,
+    metadata: str = SAFE,
 ) -> Result:
     """Re-encode one JPEG or PNG to be `reduce_pct` percent smaller on disk.
 
@@ -216,6 +276,7 @@ def compress(
     """
     if not 0 < reduce_pct < 100:
         raise ValueError(f"reduce_pct must be between 1 and 99, got {reduce_pct}")
+    check_metadata_mode(metadata)
 
     src, dest_dir = Path(src), Path(dest_dir)
     out = Path(out_path) if out_path is not None else dest_dir / src.name
@@ -235,11 +296,12 @@ def compress(
     try:
         out.parent.mkdir(parents=True, exist_ok=True)
         img = _load_upright(src)
+        exif = metadata_bytes(img, metadata)
         suffix = src.suffix.lower()
         if suffix in (".jpg", ".jpeg"):
-            data, quality = _squeeze_jpeg(img, target_bytes)
+            data, quality = _squeeze_jpeg(img, target_bytes, exif)
         elif suffix == ".png":
-            data, quality = _squeeze_png(img, target_bytes)
+            data, quality = _squeeze_png(img, target_bytes, exif)
         else:
             raise ValueError(f"compression supports .jpg and .png, not {suffix!r}")
 
@@ -263,11 +325,12 @@ def compress(
     return Result(src, out, OK, src_bytes, out_bytes, quality=quality, achieved_pct=achieved)
 
 
-def _encode_webp(img: Image.Image, quality: int) -> bytes:
+def _encode_webp(img: Image.Image, quality: int, exif: bytes | None = None) -> bytes:
     buf = io.BytesIO()
     if img.mode not in ("RGB", "RGBA"):
         img = img.convert("RGBA" if "A" in img.getbands() else "RGB")
-    img.save(buf, "WEBP", quality=quality, lossless=False, method=6)
+    extra = {"exif": exif} if exif else {}
+    img.save(buf, "WEBP", quality=quality, lossless=False, method=6, **extra)
     return buf.getvalue()
 
 
@@ -278,7 +341,13 @@ _PROBE_ENCODERS = {
 }
 
 
-def probe_quality_sizes(src: Path, fmt: str, qualities: Iterable[int]) -> dict[int, int]:
+def probe_quality_sizes(
+    src: Path,
+    fmt: str,
+    qualities: Iterable[int],
+    metadata: str = SAFE,
+    resize_to: tuple[int, int] | None = None,
+) -> dict[int, int]:
     """Encode `src` at each quality and report the byte count each produces.
 
     The source is decoded once and re-encoded per quality, using the same
@@ -292,4 +361,63 @@ def probe_quality_sizes(src: Path, fmt: str, qualities: Iterable[int]) -> dict[i
         raise ValueError(f"Cannot probe sizes for format {fmt!r}") from None
 
     img = _load_upright(Path(src))
-    return {quality: len(encoder(img, quality)) for quality in qualities}
+    if resize_to is not None and resize_to != img.size:
+        img = img.resize(resize_to, Image.LANCZOS)
+    exif = metadata_bytes(img, metadata)
+    return {quality: len(encoder(img, quality, exif)) for quality in qualities}
+
+
+def resize(
+    src: Path,
+    dest_dir: Path,
+    max_width: int | None = None,
+    max_height: int | None = None,
+    percent: float | None = None,
+    quality: int = 92,
+    overwrite: bool = False,
+    out_path: Path | None = None,
+    metadata: str = SAFE,
+) -> Result:
+    """Scale one image down, keeping its format, name and aspect ratio.
+
+    Quality defaults high, because downscaling has already discarded detail and
+    there is no sense throwing away more in the same pass. Run the compressor
+    afterwards to trade quality for size deliberately.
+    """
+    src, dest_dir = Path(src), Path(dest_dir)
+    check_metadata_mode(metadata)
+    out = Path(out_path) if out_path is not None else dest_dir / src.name
+    src_bytes = src.stat().st_size
+
+    if out.resolve() == src.resolve():
+        return Result(
+            src, None, FAILED, src_bytes, 0,
+            "refusing to resize a file over itself; choose a different output directory",
+        )
+
+    if out.exists() and not overwrite:
+        return Result(src, out, SKIPPED, src_bytes, out.stat().st_size, "output already exists")
+
+    try:
+        img = _load_upright(src)
+        original = img.size
+        target = target_size(original, max_width, max_height, percent)
+    except ValueError:
+        raise  # a contradictory instruction is the caller's bug, not this file's
+    except Exception as exc:
+        return Result(src, None, FAILED, src_bytes, 0, f"{type(exc).__name__}: {exc}")
+
+    try:
+        out.parent.mkdir(parents=True, exist_ok=True)
+        if target != original:
+            img = img.resize(target, Image.LANCZOS)
+        _save(img, out, _normalise_format(src.suffix), quality, metadata)
+    except Exception as exc:
+        return Result(src, None, FAILED, src_bytes, 0, f"{type(exc).__name__}: {exc}")
+
+    if target == original:
+        detail = f"already within the target size ({original[0]}×{original[1]})"
+    else:
+        detail = f"{original[0]}×{original[1]} → {target[0]}×{target[1]}"
+
+    return Result(src, out, OK, src_bytes, out.stat().st_size, detail, quality=quality)
