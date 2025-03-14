@@ -12,10 +12,25 @@ OPERATIONS: dict[str, str] = {
     "download": "Download a video",
     "audio": "Download the audio only",
     "formats": "List the available formats",
+    "convert": "Change a video's format",
+    "compress": "Compress a video to a target size",
+    "trim": "Keep only part of a video",
 }
 
 # Looks only; no file is written.
 READ_ONLY = frozenset({"formats"})
+
+# Work on a file already on this machine, rather than on a link.
+LOCAL = frozenset({"convert", "compress", "trim"})
+
+VIDEO_SUFFIXES = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi", ".flv", ".wmv", ".mpg", ".mpeg"}
+
+SIZE_PRESETS = (
+    ("8 MB", 8 * 1024 * 1024),
+    ("25 MB", 25 * 1024 * 1024),
+    ("50 MB", 50 * 1024 * 1024),
+    ("100 MB", 100 * 1024 * 1024),
+)
 
 QUALITY_PRESETS = (
     ("Best available", None),
@@ -30,6 +45,9 @@ def menu_items() -> list[MenuItem]:
         MenuItem("download", "Download", "video, best quality", "#00d6aa"),
         MenuItem("audio", "Audio only", "strip the picture", "#4aa8ff"),
         MenuItem("formats", "List formats", "see what is on offer", "#c77dff"),
+        MenuItem("convert", "Convert", "change the container", "#f0a02a"),
+        MenuItem("compress", "Compress", "hit a target size", "#7ee787"),
+        MenuItem("trim", "Trim", "keep part of a clip", "#ff8fa3"),
         MenuItem(QUIT, "Quit", "leave the toolkit", "#8b949e"),
     ]
 

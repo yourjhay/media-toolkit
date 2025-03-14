@@ -34,3 +34,37 @@ def test_an_unknown_mode_is_rejected():
 @pytest.mark.parametrize("mode", [VIDEO, AUDIO])
 def test_every_mode_the_toolkit_offers_has_wording(mode):
     assert download_noun(mode, 1)
+
+
+def test_local_operations_are_marked_as_working_on_files():
+    from video_toolkit.planning import LOCAL, OPERATIONS
+
+    assert LOCAL <= set(OPERATIONS)
+    assert {"convert", "compress", "trim"} == set(LOCAL)
+
+
+def test_link_operations_and_file_operations_do_not_overlap():
+    from video_toolkit.planning import LOCAL, READ_ONLY
+
+    assert not (LOCAL & READ_ONLY)
+
+
+def test_every_menu_card_maps_to_an_operation_or_quit():
+    from video_toolkit.planning import OPERATIONS, QUIT, menu_items
+
+    for item in menu_items():
+        assert item.key in OPERATIONS or item.key == QUIT
+
+
+def test_every_operation_has_a_card():
+    from video_toolkit.planning import OPERATIONS, menu_items
+
+    keys = {item.key for item in menu_items()}
+    assert set(OPERATIONS) <= keys
+
+
+def test_the_size_presets_climb():
+    from video_toolkit.planning import SIZE_PRESETS
+
+    sizes = [size for _, size in SIZE_PRESETS]
+    assert sizes == sorted(sizes)

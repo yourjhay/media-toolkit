@@ -23,10 +23,20 @@ from shared.prompts import STYLE, Cancelled, ask as _ask
 from shared.prompts import ask_path as _shared_ask_path
 from shared.prompts import pause as _pause
 
-from .download import OK, download, ffmpeg_available, probe
+from .containers import plan_conversion, supported_targets
+from .download import OK as DOWNLOAD_OK
+from .download import download, ffmpeg_available, probe
+from .media import probe_media
+from .operations import OK as ENCODE_OK
+from .operations import OVER, SKIPPED
+from .tasks import compress_video, convert_video, trim_video
+from .timecode import format_timecode, parse_timecode
 from .formats import AUDIO, MP3, VIDEO, quality_warning, readable_formats
 from .planning import (
+    LOCAL,
     OPERATIONS,
+    SIZE_PRESETS,
+    VIDEO_SUFFIXES,
     QUALITY_PRESETS,
     QUIT,
     READ_ONLY,
@@ -150,12 +160,173 @@ def _download_with_progress(
     return result
 
 
+def _media_panel(info) -> Panel:
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_row("File", f"[bold]{info.path.name}[/bold]")
+    table.add_row("Size", human_bytes(info.size_bytes))
+    if info.duration:
+        table.add_row("Length", human_duration(info.duration))
+    table.add_row("Picture", f"{info.resolution}   {info.video_codec or '—'}")
+    table.add_row("Sound", info.audio_codec or "[dim]none[/dim]")
+    table.add_row("Where", str(info.path.parent))
+    return Panel(table, title="Source", border_style=ACCENT, title_align="left")
+
+
+def _ask_media_file() -> "object":
+    while True:
+        path = _shared_ask_path(console, "Video file:")
+        if not path.is_file():
+            console.print(f"[red]No such file:[/red] {path}\n")
+            continue
+        if path.suffix.lower() not in VIDEO_SUFFIXES:
+            console.print(f"[yellow]{path.suffix or 'That'} is not a video this handles.[/yellow]\n")
+            continue
+        with console.status("[dim]Reading it…[/dim]", spinner="dots"):
+            info = probe_media(path)
+        if info.error:
+            console.print(f"[red]Could not read it.[/red] [dim]{info.error}[/dim]\n")
+            continue
+        return info
+
+
+def _ask_target_size() -> int:
+    choices = [Choice(label, size) for label, size in SIZE_PRESETS]
+    choices.append(Choice("Something else", None))
+    chosen = _ask(questionary.select("Shrink to:", choices=choices, style=STYLE))
+    if chosen is not None:
+        return chosen
+    megabytes = _ask_int_mb()
+    return megabytes * 1024 * 1024
+
+
+def _ask_int_mb() -> int:
+    from shared.prompts import ask_int
+
+    return ask_int("Target size in MB:", 25, 1, 100_000)
+
+
+def _ask_trim_range(info):
+    def ask_time(message: str, default: str) -> float:
+        while True:
+            raw = _ask(questionary.text(message, default=default, style=STYLE))
+            try:
+                return parse_timecode(raw)
+            except ValueError as exc:
+                console.print(f"[red]{exc}[/red]")
+
+    start = ask_time("Start at (m:ss):", "0:00")
+    end = ask_time("End at (m:ss):", format_timecode(info.duration or 0))
+    precise = not _ask(
+        questionary.confirm(
+            "Fast cut? (instant, but snaps to the nearest keyframe)",
+            default=True, style=STYLE,
+        )
+    )
+    return start, end, precise
+
+
+def _run_encode(describe: str, info, work):
+    with Progress(
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("{task.percentage:>3.0f}%"),
+        TextColumn("{task.fields[rate]}"),
+        TimeRemainingColumn(),
+        console=console,
+    ) as progress:
+        task = progress.add_task(describe, total=100, rate="")
+
+        def on_progress(update) -> None:
+            rate = f"{update.speed:.1f}x" if update.speed else ""
+            if update.percent is not None:
+                progress.update(task, completed=update.percent, rate=rate)
+            else:
+                progress.update(task, rate=rate)
+
+        result = work(on_progress)
+        progress.update(task, completed=100, description="Done")
+    return result
+
+
+def _local_round(operation: str, ffmpeg: bool) -> bool:
+    if not ffmpeg:
+        console.print(
+            "  [red]This needs ffmpeg, which is not installed.[/red]\n"
+            "  [dim]Run  brew install ffmpeg  and try again.[/dim]\n"
+        )
+        _pause()
+        return True
+
+    info = _ask_media_file()
+    console.print(_media_panel(info))
+
+    if operation == "convert":
+        target = _ask(
+            questionary.select(
+                "Convert to:",
+                choices=[Choice(ext.upper(), ext) for ext in supported_targets()],
+                style=STYLE,
+            )
+        )
+        plan = plan_conversion(info.video_codec, info.audio_codec, target, hardware=True)
+        if plan.lossless:
+            console.print("  [green]Repackage only — instant, and the video is untouched.[/green]")
+        else:
+            console.print(f"  [yellow]Re-encoding needed.[/yellow] [dim]{plan.reason}[/dim]")
+        console.print()
+        describe = f"Converting to {target}"
+        settings = {"target_ext": target}
+
+    elif operation == "compress":
+        target_bytes = _ask_target_size()
+        describe = f"Compressing to {human_bytes(target_bytes)}"
+        settings = {"target_bytes": target_bytes}
+
+    else:
+        start, end, precise = _ask_trim_range(info)
+        describe = "Trimming"
+        settings = {"start": start, "end": end, "precise": precise}
+
+    dest_dir = _shared_ask_path(console, "Save to:", default=str(info.path.parent / "converted"))
+
+    if not _ask(questionary.confirm("Go ahead?", default=True, style=STYLE)):
+        console.print("[dim]Cancelled.[/dim]\n")
+        return True
+
+    runners = {"convert": convert_video, "compress": compress_video, "trim": trim_video}
+
+    def work(hook):
+        return runners[operation](info.path, dest_dir, on_progress=hook, **settings)
+
+    result = _run_encode(describe, info, work)
+
+    if result.status == ENCODE_OK:
+        console.print(f"\n  [green]Saved[/green]  {human_bytes(result.output_bytes)}"
+                      f"  [dim](from {human_bytes(result.source_bytes)})[/dim]")
+        console.print(f"  [bold]{result.output}[/bold]")
+        console.print(f"  [dim]{result.detail}[/dim]\n")
+    elif result.status == OVER:
+        console.print(f"\n  [yellow]Done, but over target.[/yellow] [dim]{result.detail}[/dim]")
+        console.print(f"  [bold]{result.output}[/bold]\n")
+    elif result.status == SKIPPED:
+        console.print(f"\n  [dim]Skipped: {result.detail}[/dim]\n")
+    else:
+        console.print(f"\n  [red]Failed.[/red] [dim]{result.detail}[/dim]\n")
+
+    _pause()
+    return True
+
+
 def _one_round() -> bool:
     operation = _choose_operation()
     if operation == QUIT:
         return False
 
     ffmpeg = ffmpeg_available()
+
+    if operation in LOCAL:
+        return _local_round(operation, ffmpeg)
+
     warning = quality_warning(ffmpeg)
     if warning and operation != "formats":
         console.print(f"  [yellow]{warning}[/yellow]\n")
@@ -206,7 +377,7 @@ def _one_round() -> bool:
         url, dest_dir, mode, max_height, ffmpeg, convert_to, keep_original
     )
 
-    if result.status == OK:
+    if result.status == DOWNLOAD_OK:
         console.print(f"\n  [green]Saved[/green]  {human_bytes(result.size_bytes)}")
         console.print(f"  [bold]{result.path}[/bold]")
         if convert_to and keep_original:
