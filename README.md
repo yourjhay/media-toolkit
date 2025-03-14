@@ -109,13 +109,23 @@ Download what you have the right to download.
 ## Install
 
 ```bash
-cd tools/image_toolkit
+git clone git@github.com:yourjhay/img-toolkit.git
+cd img-toolkit
 ./setup.sh
 ```
 
-This creates a self-contained `.venv/` here, shared by both tools. Nothing is
-installed system-wide. ffmpeg is the one optional extra, and only vidkit wants
-it.
+Already have a copy? Just `cd` into it and run `./setup.sh`.
+
+This creates a self-contained `.venv/` inside the folder, shared by both
+tools. Nothing is installed system-wide, and `setup.sh` is safe to re-run.
+
+ffmpeg is the one optional extra. imgkit never needs it; vidkit needs it to
+merge high-quality streams, convert audio to MP3, and do anything with local
+video files:
+
+```bash
+brew install ffmpeg
+```
 
 ## Run
 
