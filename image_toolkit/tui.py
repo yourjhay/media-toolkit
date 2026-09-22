@@ -22,6 +22,7 @@ from .estimate import QUALITY_ANCHORS, build_quality_model, compress_target
 from .info import FileInfo, FolderInfo, inspect_source
 from .metadata import FileMetadata, maps_link, pretty_datetime, read_metadata
 from .sizing import target_size
+from .svg import read_intrinsic_size
 from shared.chrome import choose_from_cards, print_banner
 from shared.format import human_bytes, size_change_row
 from shared.prompts import STYLE, Cancelled, GoBack, ask as _ask, ask_int as _ask_int
@@ -349,7 +350,58 @@ def _collect_strip_options() -> dict:
     }
 
 
+TRANSPARENT = "__transparent__"
+
+SVG_SCALES = (
+    ("2× its own size", 2.0, "crisp on a retina screen"),
+    ("Its own size", 1.0, ""),
+    ("3× its own size", 3.0, ""),
+)
+
+
+def _collect_svg_options(files: list[Path]) -> dict:
+    """How large to draw a vector, which has no size of its own in pixels."""
+    only = read_intrinsic_size(files[0]) if len(files) == 1 else None
+
+    def label(text: str, factor: float, note: str) -> str:
+        if only:
+            text = f"{text}   {round(only[0] * factor)} × {round(only[1] * factor)}"
+        return f"{text}   ({note})" if note else text
+
+    choices = [
+        Choice(label(text, factor, note), ("scale", factor))
+        for text, factor, note in SVG_SCALES
+    ]
+    choices.append(Choice("An exact width", ("width", None)))
+
+    kind, value = _ask(questionary.select("Render at:", choices=choices, style=STYLE))
+    if kind == "scale":
+        options = {"scale": value}
+    else:
+        options = {"width": _ask_int("Width in pixels:", 1024, 1, 20000)}
+
+    # A real value, never None: questionary hands back a Choice's label when
+    # its value is None, so "Transparent" would arrive as a colour name.
+    background = _ask(
+        questionary.select(
+            "Background:",
+            choices=[
+                Choice("Transparent", TRANSPARENT),
+                Choice("White", "#ffffff"),
+                Choice("Black", "#000000"),
+            ],
+            style=STYLE,
+        )
+    )
+    if background != TRANSPARENT:
+        options["background"] = background
+    return options
+
+
 def _collect_options(operation: str, files: list[Path]) -> dict:
+    if operation == "svg":
+        return _collect_svg_options(files)
+
     if operation == "resize":
         return _collect_resize_options()
 

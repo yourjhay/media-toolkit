@@ -310,3 +310,29 @@ def test_the_stripper_only_accepts_containers_it_can_edit():
 
     assert extensions_for("strip") == SUPPORTED_SUFFIXES
     assert ".heic" not in extensions_for("strip")
+
+
+def test_svg_is_an_operation_that_writes_a_png():
+    from image_toolkit.planning import output_name
+
+    assert output_name("svg", Path("logo.svg")) == "logo.png"
+
+
+def test_svg_only_looks_for_vector_files():
+    from image_toolkit.discovery import SVG_EXTS
+
+    assert extensions_for("svg") == SVG_EXTS
+    assert ".jpg" not in extensions_for("svg")
+
+
+def test_svg_is_not_asked_the_metadata_question():
+    """A drawing carries no camera or location to preserve."""
+    from image_toolkit.planning import asks_metadata
+
+    assert not asks_metadata("svg")
+
+
+def test_the_reader_will_look_at_svg_files_too():
+    from image_toolkit.discovery import ALL_IMAGE_EXTS
+
+    assert ".svg" in ALL_IMAGE_EXTS

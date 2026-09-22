@@ -11,8 +11,15 @@ from pathlib import Path
 from typing import Callable
 
 
-from .core import compress, convert_heic, convert_to_webp, resize, strip_metadata
-from .discovery import ALL_IMAGE_EXTS, HEIC_EXTS, RASTER_EXTS
+from .core import (
+    compress,
+    convert_heic,
+    convert_svg,
+    convert_to_webp,
+    resize,
+    strip_metadata,
+)
+from .discovery import ALL_IMAGE_EXTS, HEIC_EXTS, RASTER_EXTS, SVG_EXTS
 from .jobs import Operation
 from shared.format import human_bytes, size_change_row
 from shared.menu import MenuItem
@@ -39,6 +46,7 @@ OPERATIONS: dict[str, str] = {
     "resize": "Resize JPG / PNG",
     "compress": "Compress JPG / PNG to a target size",
     "strip": "Strip metadata without re-encoding",
+    "svg": "SVG  →  PNG",
     "inspect": "Read the metadata in an image",
 }
 
@@ -57,6 +65,7 @@ _EXTENSIONS: dict[str, set[str]] = {
     "resize": RASTER_EXTS,
     "compress": RASTER_EXTS,
     "strip": SUPPORTED_SUFFIXES,
+    "svg": SVG_EXTS,
     "inspect": ALL_IMAGE_EXTS,
 }
 
@@ -66,6 +75,7 @@ _FUNCTIONS = {
     "resize": resize,
     "compress": compress,
     "strip": strip_metadata,
+    "svg": convert_svg,
 }
 
 
@@ -124,6 +134,7 @@ def menu_items() -> list[MenuItem]:
         MenuItem("resize", "Resize", "scale down to fit", "#c77dff"),
         MenuItem("compress", "Compress", "shrink to a target size", "#f0a02a"),
         MenuItem("strip", "Strip metadata", "no quality loss", "#7ee787"),
+        MenuItem("svg", "SVG → PNG", "draw vectors as pixels", "#56d4dd"),
         MenuItem("inspect", "Read metadata", "camera, date, location", "#ff8fa3"),
         MenuItem(QUIT, "Quit", "leave the toolkit", "#8b949e"),
     ]
@@ -167,6 +178,8 @@ def output_name(operation: str, src: Path, fmt: str | None = None) -> str:
         return f"{src.stem}.{(fmt or 'jpg').lower().lstrip('.')}"
     if operation == "webp":
         return f"{src.stem}.webp"
+    if operation == "svg":
+        return f"{src.stem}.png"
     if operation in ("compress", "resize", "strip"):
         return src.name  # same format in, same out
     raise ValueError(f"Unknown operation: {operation!r}")

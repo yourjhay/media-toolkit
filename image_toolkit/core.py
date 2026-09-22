@@ -15,6 +15,7 @@ import pillow_heif
 from PIL import Image, ImageOps
 
 from .sizing import target_size
+from .svg import read_intrinsic_size, render_size
 from .stripper import STRIP_ALL, check_mode as check_strip_mode, strip_bytes
 
 pillow_heif.register_heif_opener()
@@ -466,3 +467,61 @@ def strip_metadata(
         f"removed {removed} bytes of metadata" if removed else "no metadata to remove"
     )
     return Result(src, out, OK, src_bytes, len(cleaned), detail)
+
+
+def convert_svg(
+    src: Path,
+    dest_dir: Path,
+    scale: float = 2.0,
+    width: int | None = None,
+    background: str | None = None,
+    overwrite: bool = False,
+    out_path: Path | None = None,
+) -> Result:
+    """Draw an SVG into a PNG.
+
+    Scale defaults to two because a drawing rendered at its nominal size looks
+    soft on any modern display, and a vector costs nothing to render larger.
+    The background stays transparent unless asked otherwise, since that is
+    almost always what a logo wants.
+    """
+    src, dest_dir = Path(src), Path(dest_dir)
+    out = Path(out_path) if out_path is not None else dest_dir / f"{src.stem}.png"
+    src_bytes = src.stat().st_size
+
+    if out.exists() and not overwrite:
+        return Result(src, out, SKIPPED, src_bytes, out.stat().st_size, "output already exists")
+
+    try:
+        import cairosvg
+
+        intrinsic = read_intrinsic_size(src)
+        if intrinsic is None and not width:
+            return Result(
+                src, None, FAILED, src_bytes, 0,
+                "this drawing declares no width, height or viewBox, so there is "
+                "nothing for a scale to multiply; give an exact width instead",
+            )
+
+        target_width, target_height = render_size(intrinsic, scale, width)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        # The bytes, not the path: passing a local file as a url sends cairosvg
+        # through urllib, which leaves the handle open and raises a
+        # ResourceWarning on collection. Self-contained drawings are the case
+        # that matters here, and they need no base to resolve against.
+        cairosvg.svg2png(
+            bytestring=src.read_bytes(),
+            write_to=str(out),
+            output_width=target_width,
+            output_height=target_height,
+            background_color=background,
+        )
+    except Exception as exc:
+        return Result(src, None, FAILED, src_bytes, 0, f"{type(exc).__name__}: {exc}")
+
+    with Image.open(out) as drawn:
+        made = drawn.size
+    detail = f"drawn at {made[0]}×{made[1]}"
+    if intrinsic is None:
+        detail += " — the drawing declares no size, so it was rendered square"
+    return Result(src, out, OK, src_bytes, out.stat().st_size, detail)

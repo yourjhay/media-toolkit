@@ -15,6 +15,7 @@ Six jobs:
 - **Compress JPG / PNG** — shrink a file by a target percentage
 - **Strip metadata** — remove it without re-encoding the picture
 - **Read metadata** — see what a photo records about itself
+- **SVG → PNG** — draw a vector at whatever size you need
 
 No GUI, no flags to memorise. Run it, answer the prompts with the arrow keys.
 
@@ -222,6 +223,42 @@ escape quits. The selected card is drawn with a heavy border as well as a
 brighter colour, so the selection is still visible over SSH, in a pipe, or in
 any terminal without truecolour. Below about 55 columns the grid drops to a
 single column.
+
+## SVG → PNG
+
+A vector has no size of its own in pixels, so the question is how large to
+draw it:
+
+```
+? Render at:
+  › 2× its own size   320 × 200   (crisp on a retina screen)
+    Its own size      160 × 100
+    3× its own size   480 × 300
+    An exact width
+
+? Background:
+  › Transparent
+    White
+    Black
+```
+
+Two times is the default because a logo drawn at its nominal size looks soft
+on any modern display, and a vector costs nothing to draw larger. When one
+file is selected the sizes are worked out and shown, so the choice is concrete
+rather than arithmetic you do in your head.
+
+The size is taken from the file's `width` and `height`, falling back to its
+`viewBox` when those are missing or given as percentages. Units are handled —
+`72pt` is 96 pixels, not 72.
+
+A drawing declaring none of the three has no aspect ratio at all. An exact
+width then renders it square and the result says so; a scale is refused
+outright, because there is nothing to multiply and quietly inventing a size
+would be worse than saying no.
+
+Rendering is done by [CairoSVG](https://cairosvg.org). It handles ordinary
+drawings — logos, icons, diagrams — well, and is weaker on advanced filters
+and unusual text. `setup.sh` installs it; no Homebrew package is needed.
 
 ## Strip metadata
 
