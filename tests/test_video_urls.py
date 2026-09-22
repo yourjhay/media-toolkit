@@ -34,7 +34,7 @@ def test_something_that_is_not_a_link_is_rejected():
 
 def test_a_local_file_path_is_rejected_rather_than_guessed_at():
     with pytest.raises(ValueError):
-        clean_url("/Users/rj/Downloads/video.mp4")
+        clean_url("/home/someone/Downloads/video.mp4")
 
 
 def test_a_radio_mix_link_is_reduced_to_the_video_it_names():

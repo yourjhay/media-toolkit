@@ -113,9 +113,7 @@ def test_tab_completion_trailing_space_is_stripped():
     """questionary's path completer appends a space after a completed name."""
     from image_toolkit.planning import clean_path_input
 
-    assert clean_path_input("/Users/rj/Downloads/IMG_3319.HEIC ") == Path(
-        "/Users/rj/Downloads/IMG_3319.HEIC"
-    )
+    assert clean_path_input("/photos/IMG_3319.HEIC ") == Path("/photos/IMG_3319.HEIC")
 
 
 def test_surrounding_whitespace_is_stripped():

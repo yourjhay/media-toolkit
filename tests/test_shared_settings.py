@@ -13,9 +13,9 @@ def test_nothing_remembered_yet_gives_the_fallback(tmp_path):
 def test_what_is_remembered_comes_back(tmp_path):
     store = tmp_path / "settings.json"
 
-    settings.remember_path("video.dest", Path("/Users/rj/Movies"), store=store)
+    settings.remember_path("video.dest", Path("/media/films"), store=store)
 
-    assert settings.recall_path("video.dest", Path("/fallback"), store=store) == Path("/Users/rj/Movies")
+    assert settings.recall_path("video.dest", Path("/fallback"), store=store) == Path("/media/films")
 
 
 def test_different_keys_do_not_collide(tmp_path):
