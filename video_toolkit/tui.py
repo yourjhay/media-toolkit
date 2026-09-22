@@ -55,6 +55,7 @@ from .speed import describe_wait, estimate_encode_seconds, is_slow
 from .timecode import format_timecode, parse_timecode
 from .formats import AUDIO, MP3, VIDEO, quality_warning, readable_formats
 from .planning import (
+    BEST_AVAILABLE,
     LINK_HELP,
     LOCAL,
     SIZE_PRESETS,
@@ -603,13 +604,14 @@ def _one_round() -> bool:
     if mode == AUDIO:
         convert_to, keep_original = _ask_audio_conversion(ffmpeg)
     if mode == VIDEO:
-        max_height = _ask(
+        chosen = _ask(
             questionary.select(
                 "Quality:",
                 choices=[Choice(label, height) for label, height in QUALITY_PRESETS],
                 style=STYLE,
             )
         )
+        max_height = None if chosen == BEST_AVAILABLE else chosen
 
     dest_dir = _ask_dest(DOWNLOAD_DEST, Path.home() / "Downloads")
 
@@ -626,7 +628,7 @@ def _one_round() -> bool:
     # It is offered before the retry loop rather than inside it: once a job is
     # running behind you there is nobody there to answer "try again?".
     console.print("  [dim]A download can take a while.[/dim]")
-    if _ask(questionary.confirm("Run it in the background?", default=True, style=STYLE)):
+    if _ask(questionary.confirm("Run it in the background?", default=False, style=STYLE)):
         def background_work(report):
             return download(
                 url, dest_dir, mode=mode, max_height=max_height, ffmpeg=ffmpeg,

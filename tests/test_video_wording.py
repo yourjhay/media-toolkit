@@ -74,15 +74,17 @@ def test_the_quality_presets_reach_4k():
     """4K works, but a menu stopping at 1080p implies it does not."""
     from video_toolkit.planning import QUALITY_PRESETS
 
-    heights = [h for _, h in QUALITY_PRESETS if h is not None]
+    heights = [h for _, h in QUALITY_PRESETS if isinstance(h, int)]
     assert 2160 in heights
 
 
 def test_the_presets_descend_from_best_to_smallest():
     from video_toolkit.planning import QUALITY_PRESETS
 
-    assert QUALITY_PRESETS[0][1] is None, "best available should lead"
-    heights = [h for _, h in QUALITY_PRESETS if h is not None]
+    from video_toolkit.planning import BEST_AVAILABLE
+
+    assert QUALITY_PRESETS[0][1] == BEST_AVAILABLE, "best available should lead"
+    heights = [h for _, h in QUALITY_PRESETS if isinstance(h, int)]
     assert heights == sorted(heights, reverse=True)
 
 
@@ -90,7 +92,7 @@ def test_every_preset_is_labelled_with_its_resolution():
     from video_toolkit.planning import QUALITY_PRESETS
 
     for label, height in QUALITY_PRESETS:
-        if height is not None:
+        if isinstance(height, int):
             assert str(height) in label
 
 
@@ -98,12 +100,15 @@ def test_a_capped_preset_produces_a_capped_selector():
     from video_toolkit.formats import VIDEO, format_selector
     from video_toolkit.planning import QUALITY_PRESETS
 
+    from video_toolkit.planning import BEST_AVAILABLE
+
     for _, height in QUALITY_PRESETS:
-        selector = format_selector(mode=VIDEO, ffmpeg=True, max_height=height)
-        if height is None:
+        cap = None if height == BEST_AVAILABLE else height
+        selector = format_selector(mode=VIDEO, ffmpeg=True, max_height=cap)
+        if cap is None:
             assert "height" not in selector
         else:
-            assert str(height) in selector
+            assert str(cap) in selector
 
 
 def test_the_jobs_card_reports_what_is_running():

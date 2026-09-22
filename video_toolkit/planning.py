@@ -45,8 +45,13 @@ SIZE_PRESETS = (
 
 # 4K and 1440p are listed even though "best available" would reach them
 # anyway: a menu that stops at 1080p reads as a tool that stops there too.
+# A real value, never None: questionary hands back a Choice's label when its
+# value is None, so "Best available" arrived as a height and was spliced into
+# the format selector as height<=?Bestavailable.
+BEST_AVAILABLE = "__best__"
+
 QUALITY_PRESETS = (
-    ("Best available", None),
+    ("Best available", BEST_AVAILABLE),
     ("Up to 2160p  (4K)", 2160),
     ("Up to 1440p  (2K)", 1440),
     ("Up to 1080p", 1080),

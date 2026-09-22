@@ -84,3 +84,64 @@ def test_the_reader_back_entry_returns_a_sentinel_not_its_label():
     assert [c.value for c in choices[:-1]] == [0, 1]
     assert choices[-1].value == BACK
     assert choices[-1].value != choices[-1].title
+
+
+# --- the same trap, arriving by a different route ---------------------------
+
+def _preset_tables():
+    """Every module-level table that gets turned into Choices."""
+    import importlib
+    import pkgutil
+
+    found = {}
+    for package in ("shared", "image_toolkit", "video_toolkit"):
+        root = importlib.import_module(package)
+        for info in pkgutil.iter_modules(root.__path__):
+            module = importlib.import_module(f"{package}.{info.name}")
+            for name in dir(module):
+                if name.endswith(("PRESETS", "SCALES")) and not name.startswith("_"):
+                    found[f"{package}.{info.name}.{name}"] = getattr(module, name)
+    return found
+
+
+def test_the_preset_tables_are_actually_being_found():
+    """A guard that inspects nothing would pass for the wrong reason."""
+    names = _preset_tables()
+
+    assert len(names) >= 4, f"expected several preset tables, found {sorted(names)}"
+
+
+def test_no_preset_table_contains_a_none():
+    """The AST guard only sees a literal None written inside Choice(...).
+
+    QUALITY_PRESETS held ("Best available", None) and fed it to Choice through
+    a loop variable, so the literal never appeared at the call site and the
+    scan saw nothing. The value came back as the label and was spliced into a
+    format selector as height<=?Bestavailable. Checking the data itself catches
+    it however it reaches the Choice.
+    """
+    offenders = [
+        f"{name}[{index}]"
+        for name, table in _preset_tables().items()
+        for index, row in enumerate(table)
+        if None in (row if isinstance(row, (tuple, list)) else (row,))
+    ]
+
+    assert not offenders, (
+        f"these presets hold a None, which questionary replaces with the "
+        f"label: {offenders}. Use a sentinel instead."
+    )
+
+
+def test_the_check_would_catch_the_bug_it_exists_for():
+    """Proved against the exact shape that shipped, rather than assumed."""
+    broken = {"somewhere.QUALITY_PRESETS": (("Best available", None), ("Up to 1080p", 1080))}
+
+    offenders = [
+        f"{name}[{index}]"
+        for name, table in broken.items()
+        for index, row in enumerate(table)
+        if None in (row if isinstance(row, (tuple, list)) else (row,))
+    ]
+
+    assert offenders == ["somewhere.QUALITY_PRESETS[0]"]
