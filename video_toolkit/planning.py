@@ -15,10 +15,11 @@ OPERATIONS: dict[str, str] = {
     "convert": "Change a video's format",
     "compress": "Compress a video to a target size",
     "trim": "Keep only part of a video",
+    "jobs": "Watch what is running in the background",
 }
 
 # Looks only; no file is written.
-READ_ONLY = frozenset({"formats"})
+READ_ONLY = frozenset({"formats", "jobs"})
 
 # Work on a file already on this machine, rather than on a link.
 LOCAL = frozenset({"convert", "compress", "trim"})
@@ -44,7 +45,7 @@ QUALITY_PRESETS = (
 )
 
 
-def menu_items() -> list[MenuItem]:
+def menu_items(jobs_summary: str = "") -> list[MenuItem]:
     return [
         MenuItem("download", "Download", "video, best quality", "#00d6aa"),
         MenuItem("audio", "Audio only", "strip the picture", "#4aa8ff"),
@@ -52,6 +53,7 @@ def menu_items() -> list[MenuItem]:
         MenuItem("convert", "Convert", "change the container", "#f0a02a"),
         MenuItem("compress", "Compress", "hit a target size", "#7ee787"),
         MenuItem("trim", "Trim", "keep part of a clip", "#ff8fa3"),
+        MenuItem("jobs", "Jobs", jobs_summary or "nothing running", "#ffd166"),
         MenuItem(QUIT, "Quit", "leave the toolkit", "#8b949e"),
     ]
 

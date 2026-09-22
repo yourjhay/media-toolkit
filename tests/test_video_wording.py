@@ -104,3 +104,25 @@ def test_a_capped_preset_produces_a_capped_selector():
             assert "height" not in selector
         else:
             assert str(height) in selector
+
+
+def test_the_jobs_card_reports_what_is_running():
+    from video_toolkit.planning import menu_items
+
+    card = next(item for item in menu_items("2 running") if item.key == "jobs")
+
+    assert card.detail == "2 running"
+
+
+def test_the_jobs_card_says_so_when_nothing_is_running():
+    from video_toolkit.planning import menu_items
+
+    card = next(item for item in menu_items() if item.key == "jobs")
+
+    assert "nothing" in card.detail
+
+
+def test_watching_jobs_writes_nothing():
+    from video_toolkit.planning import READ_ONLY
+
+    assert "jobs" in READ_ONLY

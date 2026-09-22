@@ -23,6 +23,7 @@ from rich.progress import (
 )
 from rich.table import Table
 
+from shared.background import DONE, FAILED as JOB_FAILED, JobBoard
 from shared.chrome import choose_from_cards, print_banner
 from shared.format import human_bytes, human_duration
 from shared.prompts import STYLE, Cancelled, GoBack
@@ -40,6 +41,7 @@ from .media import probe_media
 from .operations import OK as ENCODE_OK
 from .operations import OVER, SKIPPED
 from .tasks import compress_video, convert_video, trim_video
+from .speed import describe_wait, estimate_encode_seconds, is_slow
 from .timecode import format_timecode, parse_timecode
 from .formats import AUDIO, MP3, VIDEO, quality_warning, readable_formats
 from .planning import (
@@ -55,6 +57,9 @@ from .planning import (
 from .urls import clean_url
 
 console = Console()
+
+# Jobs started from the menu and left to run while it stays usable.
+board = JobBoard()
 
 TITLE = "VID TOOLKIT"
 SUBTITLE = "download  ·  audio only  ·  formats"
@@ -99,8 +104,9 @@ def _banner() -> None:
 
 
 def _choose_operation() -> str:
-    chosen = choose_from_cards(console, menu_items(), "What would you like to do?")
-    picked = next(item for item in menu_items() if item.key == chosen)
+    items = menu_items(board.summary())
+    chosen = choose_from_cards(console, items, "What would you like to do?")
+    picked = next(item for item in items if item.key == chosen)
     console.print(f"[#00b894]?[/#00b894] [bold]Operation:[/bold] [#0984e3]{picked.title}[/#0984e3]")
     return chosen
 
@@ -197,6 +203,27 @@ def _download_with_progress(
     return result
 
 
+def percent_reporter(report):
+    """Turn an encoder's progress object into the plain number a job wants.
+
+    ffmpeg and yt-dlp each report a structure of their own; the job board only
+    understands a percent. Handing one straight to the other crashed the Jobs
+    table, so the translation lives in one named place rather than being
+    rewritten at each call site — and forgotten at one of them.
+    """
+
+    def forward(update) -> None:
+        percent = getattr(update, "percent", None)
+        if percent is not None:
+            report(percent)
+
+    return forward
+
+
+def _pixels(info) -> int | None:
+    return info.width * info.height if info.width and info.height else None
+
+
 def _media_panel(info) -> Panel:
     table = Table(show_header=False, box=None, padding=(0, 2))
     table.add_row("File", f"[bold]{info.path.name}[/bold]")
@@ -262,22 +289,6 @@ def _ask_trim_range(info):
     return start, end, precise
 
 
-def _run_encode(describe: str, info, work):
-    with progress_bar() as progress:
-        task = progress.add_task(describe, total=100, rate="")
-
-        def on_progress(update) -> None:
-            rate = f"{update.speed:.1f}x" if update.speed else ""
-            if update.percent is not None:
-                progress.update(task, completed=update.percent, rate=rate)
-            else:
-                progress.update(task, rate=rate)
-
-        result = work(on_progress)
-        progress.update(task, completed=100, description="Done")
-    return result
-
-
 def _local_round(operation: str, ffmpeg: bool) -> bool:
     if not ffmpeg:
         console.print(
@@ -324,16 +335,25 @@ def _local_round(operation: str, ffmpeg: bool) -> bool:
         console.print()
         describe = f"Converting to {target}"
         settings = {"target_ext": target, "force_video_encode": force}
+        estimated = (
+            1.0 if plan.lossless
+            else estimate_encode_seconds(info.duration, plan.video_encoder, _pixels(info))
+        )
 
     elif operation == "compress":
         target_bytes = _ask_target_size()
         describe = f"Compressing to {human_bytes(target_bytes)}"
         settings = {"target_bytes": target_bytes}
+        estimated = estimate_encode_seconds(info.duration, "libx264", _pixels(info))
 
     else:
         start, end, precise = _ask_trim_range(info)
         describe = "Trimming"
         settings = {"start": start, "end": end, "precise": precise}
+        estimated = (
+            estimate_encode_seconds(end - start, "libx264", _pixels(info))
+            if precise else 1.0
+        )
 
     dest_dir = _ask_dest(LOCAL_DEST, info.path.parent / "converted")
 
@@ -343,10 +363,14 @@ def _local_round(operation: str, ffmpeg: bool) -> bool:
 
     runners = {"convert": convert_video, "compress": compress_video, "trim": trim_video}
 
-    def work(hook):
-        return runners[operation](info.path, dest_dir, on_progress=hook, **settings)
+    def work(report):
+        return runners[operation](
+            info.path, dest_dir, on_progress=percent_reporter(report), **settings
+        )
 
-    result = _run_encode(describe, info, work)
+    result = _maybe_background(describe, work, estimated)
+    if result is None:
+        return True  # running behind us; Jobs has it from here
 
     if result.status == ENCODE_OK:
         console.print(f"\n  [green]Saved[/green]  {human_bytes(result.output_bytes)}"
@@ -365,12 +389,77 @@ def _local_round(operation: str, ffmpeg: bool) -> bool:
     return True
 
 
+def _maybe_background(label: str, work, estimated: float | None):
+    """Run `work`, in the background if it is long enough to be worth asking.
+
+    `work` takes a callback it reports percent to. Returns the result, or None
+    when the job was sent to the background and there is nothing to report yet.
+    """
+    if is_slow(estimated):
+        console.print(f"  [dim]This will take {describe_wait(estimated)}.[/dim]")
+        if _ask(
+            questionary.confirm("Run it in the background?", default=True, style=STYLE)
+        ):
+            board.start(label, work)
+            console.print("\n  [green]Started.[/green] [dim]Watch it under Jobs.[/dim]\n")
+            return None
+
+    with progress_bar() as progress:
+        task = progress.add_task(label, total=100, rate="")
+
+        def on_progress(percent: float) -> None:
+            progress.update(task, completed=percent)
+
+        result = work(on_progress)
+        progress.update(task, completed=100, description="Done")
+    return result
+
+
+def _jobs_round() -> bool:
+    jobs = board.jobs()
+    if not jobs:
+        console.print("  [dim]Nothing running, and nothing finished yet.[/dim]\n")
+        _pause()
+        return True
+
+    table = Table(box=box.SIMPLE, header_style="bold", padding=(0, 1))
+    for column in ("#", "Job", "State", "Progress", "Elapsed"):
+        table.add_column(column, justify="right" if column in ("#", "Progress", "Elapsed") else "left")
+
+    for job in jobs:
+        if job.status == DONE:
+            state = "[green]done[/green]"
+        elif job.status == JOB_FAILED:
+            state = "[red]failed[/red]"
+        else:
+            state = f"[{ACCENT}]running[/{ACCENT}]"
+        percent = f"{job.percent:.0f}%" if job.percent is not None else "—"
+        table.add_row(str(job.id), job.label, state, percent, human_duration(job.elapsed))
+    console.print(table)
+
+    for job in jobs:
+        if job.status == JOB_FAILED:
+            console.print(f"  [red]·[/red] {job.label}: {job.detail}")
+        elif job.status == DONE and getattr(job.result, "output", None):
+            console.print(f"  [green]·[/green] {job.label} → [bold]{job.result.output}[/bold]")
+    console.print()
+
+    if any(not job.is_running for job in jobs):
+        if _ask(questionary.confirm("Clear the finished ones?", default=False, style=STYLE)):
+            board.clear_finished()
+    _pause()
+    return True
+
+
 def _one_round() -> bool:
     operation = _choose_operation()
     if operation == QUIT:
         return False
 
     ffmpeg = ffmpeg_available()
+
+    if operation == "jobs":
+        return _jobs_round()
 
     if operation in LOCAL:
         return _local_round(operation, ffmpeg)
@@ -433,6 +522,23 @@ def _one_round() -> bool:
         console.print("[dim]Cancelled.[/dim]\n")
         return True
 
+    # A download has no predictable length, so backgrounding is always offered.
+    # It is offered before the retry loop rather than inside it: once a job is
+    # running behind you there is nobody there to answer "try again?".
+    console.print("  [dim]A download can take a while.[/dim]")
+    if _ask(questionary.confirm("Run it in the background?", default=True, style=STYLE)):
+        def background_work(report):
+            return download(
+                url, dest_dir, mode=mode, max_height=max_height, ffmpeg=ffmpeg,
+                convert_to=convert_to, keep_original=keep_original,
+                on_progress=percent_reporter(report),
+            )
+
+        board.start(f"Download: {info.title or url}", background_work)
+        console.print("\n  [green]Started.[/green] [dim]Watch it under Jobs.[/dim]\n")
+        _pause()
+        return True
+
     attempt = 0
     while True:
         attempt += 1
@@ -477,11 +583,25 @@ def _round_or_back() -> bool:
         return True
 
 
+def _confirm_quit() -> bool:
+    """Leaving kills anything still running, since the threads are daemons."""
+    running = board.running_count()
+    if not running:
+        return True
+    console.print(
+        f"\n  [yellow]{running} job{'s' if running != 1 else ''} still running. "
+        f"Quitting stops {'them' if running != 1 else 'it'}.[/yellow]\n"
+    )
+    return _ask(questionary.confirm("Quit anyway?", default=False, style=STYLE))
+
+
 def main() -> int:
     _banner()
     try:
-        while _round_or_back():
-            pass
+        while True:
+            if not _round_or_back():
+                if _confirm_quit():
+                    break
     except Cancelled:
         console.print("\n[dim]Cancelled.[/dim]")
         return 130

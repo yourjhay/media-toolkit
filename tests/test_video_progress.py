@@ -49,3 +49,31 @@ def test_every_bar_in_the_toolkit_is_built_from_this_one_helper():
     source = pathlib.Path(video_toolkit.tui.__file__).read_text()
 
     assert source.count("Progress(") == 1, "Progress should only be constructed in progress_bar()"
+
+
+def test_an_encoder_update_is_translated_into_a_plain_percent():
+    """The job board wants a number; ffmpeg and yt-dlp both report objects."""
+    from video_toolkit.tui import percent_reporter
+
+    seen = []
+    report = percent_reporter(seen.append)
+
+    class Update:
+        percent = 42.0
+
+    report(Update())
+
+    assert seen == [42.0]
+
+
+def test_an_update_with_no_percent_yet_reports_nothing():
+    from video_toolkit.tui import percent_reporter
+
+    seen = []
+
+    class Update:
+        percent = None
+
+    percent_reporter(seen.append)(Update())
+
+    assert seen == []
