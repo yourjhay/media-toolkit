@@ -14,7 +14,13 @@ from questionary import Choice
 from rich import box
 from rich.console import Console
 from rich.panel import Panel
-from rich.progress import BarColumn, Progress, TextColumn, TimeRemainingColumn
+from rich.progress import (
+    BarColumn,
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    TimeRemainingColumn,
+)
 from rich.table import Table
 
 from shared.chrome import choose_from_cards, print_banner
@@ -68,6 +74,24 @@ def _ask_dest(key: str, fallback: Path) -> Path:
     chosen = _shared_ask_path(console, "Save to:", default=str(recall_path(key, fallback)))
     remember_path(key, chosen)
     return chosen
+
+
+def progress_bar() -> Progress:
+    """The one progress display, shared by downloading and encoding.
+
+    The spinner leads it because both jobs spend their opening seconds with no
+    percentage to show — yt-dlp resolving a link, ffmpeg opening a file — and a
+    bar sitting at zero with nothing moving looks like a hang.
+    """
+    return Progress(
+        SpinnerColumn(finished_text="[green]done[/green]"),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(),
+        TextColumn("{task.percentage:>3.0f}%"),
+        TextColumn("{task.fields[rate]}"),
+        TimeRemainingColumn(),
+        console=console,
+    )
 
 
 def _banner() -> None:
@@ -151,14 +175,7 @@ def _download_with_progress(
     keep_original: bool = False,
     label: str = "Downloading",
 ):
-    with Progress(
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("{task.percentage:>3.0f}%"),
-        TextColumn("{task.fields[rate]}"),
-        TimeRemainingColumn(),
-        console=console,
-    ) as progress:
+    with progress_bar() as progress:
         task = progress.add_task(label, total=100, rate="")
 
         def on_progress(update) -> None:
@@ -246,14 +263,7 @@ def _ask_trim_range(info):
 
 
 def _run_encode(describe: str, info, work):
-    with Progress(
-        TextColumn("[progress.description]{task.description}"),
-        BarColumn(),
-        TextColumn("{task.percentage:>3.0f}%"),
-        TextColumn("{task.fields[rate]}"),
-        TimeRemainingColumn(),
-        console=console,
-    ) as progress:
+    with progress_bar() as progress:
         task = progress.add_task(describe, total=100, rate="")
 
         def on_progress(update) -> None:
