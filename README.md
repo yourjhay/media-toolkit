@@ -1,6 +1,6 @@
 # media toolkit
 
-![img toolkit](docs/cover.png)
+![imgkit — the image toolkit](docs/cover.png)
 
 `imgkit` for images, `vidkit` for video. Convert, resize, compress, strip,
 inspect — all from the keyboard, all on your own machine, one install.
@@ -20,6 +20,8 @@ Six jobs:
 No GUI, no flags to memorise. Run it, answer the prompts with the arrow keys.
 
 ## vidkit — video
+
+![vidkit — the video toolkit](docs/vidkit.png)
 
 Downloading, with [yt-dlp](https://github.com/yt-dlp/yt-dlp) doing the fetching:
 
