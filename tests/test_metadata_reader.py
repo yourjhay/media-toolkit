@@ -136,3 +136,23 @@ def test_an_unrecognised_date_is_passed_through_unchanged():
 def test_the_maps_link_is_not_absurdly_precise():
     """Six decimal places is about 10cm; the raw float is 15 digits of noise."""
     assert maps_link(14.591666666666667, 121.0) == "https://www.google.com/maps?q=14.591667,121.0"
+
+
+def test_reading_a_vector_reports_its_size_not_a_failure(tmp_path):
+    """SVG is offered to the reader, so it must not fall over on one."""
+    path = tmp_path / "logo.svg"
+    path.write_bytes(b'<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"/>')
+
+    data = read_metadata(path)
+
+    assert data.error is None
+    assert data.dimensions == (120, 80)
+    assert data.format == "SVG"
+    assert data.has_location is False
+
+
+def test_a_vector_carries_no_camera_or_location(tmp_path):
+    path = tmp_path / "logo.svg"
+    path.write_bytes(b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"/>')
+
+    assert read_metadata(path).fields == []

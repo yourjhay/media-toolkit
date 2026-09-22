@@ -11,6 +11,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from .core import _load_upright
+from .discovery import SVG_EXTS
+from .svg import read_intrinsic_size
 
 # EXIF tag numbers, named so the extraction table below reads as prose.
 _MAKE = 0x010F
@@ -140,6 +142,18 @@ def read_metadata(path: Path) -> FileMetadata:
     """Everything worth showing about one image file."""
     path = Path(path)
     data = FileMetadata(path=path, name=path.name, size_bytes=path.stat().st_size)
+
+    if path.suffix.lower() in SVG_EXTS:
+        # A vector holds no camera, date or location, and no image library
+        # will open it. Its declared size is the whole story.
+        size = read_intrinsic_size(path)
+        if size is None and b"<svg" not in path.read_bytes()[:4096]:
+            data.error = "not a readable SVG"
+            return data
+        data.format = "SVG"
+        if size:
+            data.dimensions = (round(size[0]), round(size[1]))
+        return data
 
     try:
         img = _load_upright(path)

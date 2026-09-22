@@ -78,3 +78,58 @@ def test_folder_reports_its_own_name_and_parent(make_jpg, tmp_path):
 
     assert info.name == "photos"
     assert info.location == tmp_path
+
+
+# --- vectors are not openable by an image library ---------------------------
+
+SVG = b'''<svg xmlns="http://www.w3.org/2000/svg" width="120" height="80"><rect width="1" height="1"/></svg>'''
+
+
+def test_an_svg_reports_its_size_rather_than_an_error(tmp_path):
+    """Pillow cannot open a vector; that is not a problem with the file."""
+    from image_toolkit.discovery import SVG_EXTS
+
+    path = tmp_path / "logo.svg"
+    path.write_bytes(SVG)
+
+    info = inspect_source(path, SVG_EXTS)
+
+    assert info.error is None, info.error
+    assert info.dimensions == (120, 80)
+    assert info.format == "SVG"
+
+
+def test_an_svg_with_only_a_viewbox_is_still_described(tmp_path):
+    from image_toolkit.discovery import SVG_EXTS
+
+    path = tmp_path / "icon.svg"
+    path.write_bytes(b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"/>')
+
+    info = inspect_source(path, SVG_EXTS)
+
+    assert info.error is None
+    assert info.dimensions == (64, 64)
+
+
+def test_an_svg_that_declares_no_size_says_so_without_failing(tmp_path):
+    from image_toolkit.discovery import SVG_EXTS
+
+    path = tmp_path / "sizeless.svg"
+    path.write_bytes(b'<svg xmlns="http://www.w3.org/2000/svg"/>')
+
+    info = inspect_source(path, SVG_EXTS)
+
+    assert info.error is None
+    assert info.dimensions is None
+    assert info.format == "SVG"
+
+
+def test_a_broken_svg_is_reported_as_broken(tmp_path):
+    from image_toolkit.discovery import SVG_EXTS
+
+    path = tmp_path / "broken.svg"
+    path.write_bytes(b"this is not xml")
+
+    info = inspect_source(path, SVG_EXTS)
+
+    assert info.error

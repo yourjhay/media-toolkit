@@ -6,7 +6,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .core import _load_upright
-from .discovery import find_images
+from .discovery import SVG_EXTS, find_images
+from .svg import read_intrinsic_size
 
 
 @dataclass
@@ -46,6 +47,9 @@ def _describe_file(path: Path) -> FileInfo:
         size_bytes=path.stat().st_size,
         location=path.parent,
     )
+    if path.suffix.lower() in SVG_EXTS:
+        return _describe_vector(path, info)
+
     try:
         # Upright, so a rotated iPhone photo reports the shape you would see.
         img = _load_upright(path)
@@ -54,6 +58,25 @@ def _describe_file(path: Path) -> FileInfo:
     except Exception as exc:
         info.error = f"{type(exc).__name__}: {exc}"
     return info
+
+
+def _describe_vector(path: Path, info):
+    """A drawing, described without asking an image library to open it."""
+    size = read_intrinsic_size(path)
+    if size is None and not _looks_like_svg(path):
+        info.error = "not a readable SVG"
+        return info
+    info.format = "SVG"
+    if size:
+        info.dimensions = (round(size[0]), round(size[1]))
+    return info
+
+
+def _looks_like_svg(path: Path) -> bool:
+    try:
+        return b"<svg" in path.read_bytes()[:4096]
+    except OSError:
+        return False
 
 
 def _describe_folder(path: Path, extensions: set[str]) -> FolderInfo:
