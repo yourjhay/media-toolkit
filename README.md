@@ -1,4 +1,4 @@
-# toolkit
+# media toolkit
 
 ![img toolkit](docs/cover.png)
 
@@ -136,8 +136,8 @@ or gone rather than that something is broken.
 ## Install
 
 ```bash
-git clone git@github.com:yourjhay/img-toolkit.git
-cd img-toolkit
+git clone git@github.com:yourjhay/media-toolkit.git
+cd media-toolkit
 ./setup.sh
 ```
 
