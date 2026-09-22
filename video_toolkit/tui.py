@@ -9,7 +9,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import io
+
 import questionary
+from prompt_toolkit.application import Application
+from prompt_toolkit.formatted_text import ANSI
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
+from prompt_toolkit.layout import HSplit, Layout, Window
+from prompt_toolkit.layout.controls import FormattedTextControl
 from questionary import Choice
 from rich import box
 from rich.console import Console
@@ -415,16 +423,13 @@ def _maybe_background(label: str, work, estimated: float | None):
     return result
 
 
-def _jobs_round() -> bool:
-    jobs = board.jobs()
-    if not jobs:
-        console.print("  [dim]Nothing running, and nothing finished yet.[/dim]\n")
-        _pause()
-        return True
-
+def jobs_table(jobs) -> Table:
+    """The jobs board as a table. Pure, so its contents can be checked."""
     table = Table(box=box.SIMPLE, header_style="bold", padding=(0, 1))
     for column in ("#", "Job", "State", "Progress", "Elapsed"):
-        table.add_column(column, justify="right" if column in ("#", "Progress", "Elapsed") else "left")
+        table.add_column(
+            column, justify="right" if column in ("#", "Progress", "Elapsed") else "left"
+        )
 
     for job in jobs:
         if job.status == DONE:
@@ -435,19 +440,64 @@ def _jobs_round() -> bool:
             state = f"[{ACCENT}]running[/{ACCENT}]"
         percent = f"{job.percent:.0f}%" if job.percent is not None else "—"
         table.add_row(str(job.id), job.label, state, percent, human_duration(job.elapsed))
-    console.print(table)
+    return table
+
+
+def jobs_view_text(jobs, width: int) -> str:
+    """The whole jobs screen, rendered to a string with its colours intact."""
+    buffer = io.StringIO()
+    writer = Console(file=buffer, force_terminal=True, width=width)
+    writer.print(jobs_table(jobs))
 
     for job in jobs:
         if job.status == JOB_FAILED:
-            console.print(f"  [red]·[/red] {job.label}: {job.detail}")
+            writer.print(f"  [red]·[/red] {job.label}: {job.detail}")
         elif job.status == DONE and getattr(job.result, "output", None):
-            console.print(f"  [green]·[/green] {job.label} → [bold]{job.result.output}[/bold]")
-    console.print()
+            writer.print(f"  [green]·[/green] {job.label} → [bold]{job.result.output}[/bold]")
 
-    if any(not job.is_running for job in jobs):
+    writer.print("\n  [dim]Updating live. Press any key to go back.[/dim]")
+    return buffer.getvalue()
+
+
+def _watch_jobs() -> None:
+    """Show the board and keep it current until a key is pressed.
+
+    A static render was the first attempt, and it was wrong in the way that
+    matters: percentages and elapsed times sat frozen, so a job that was
+    working looked exactly like one that had hung.
+    """
+    bindings = KeyBindings()
+
+    @bindings.add(Keys.Any)
+    def _(event) -> None:
+        event.app.exit()
+
+    def render():
+        return ANSI(jobs_view_text(board.jobs(), console.width))
+
+    application = Application(
+        layout=Layout(HSplit([Window(FormattedTextControl(render))])),
+        key_bindings=bindings,
+        full_screen=False,
+        refresh_interval=0.5,
+        erase_when_done=True,
+    )
+    application.run()
+
+
+def _jobs_round() -> bool:
+    if not board.jobs():
+        console.print("  [dim]Nothing running, and nothing finished yet.[/dim]\n")
+        _pause()
+        return True
+
+    _watch_jobs()
+    console.print(jobs_view_text(board.jobs(), console.width).rsplit("\n\n", 1)[0])
+
+    if any(not job.is_running for job in board.jobs()):
         if _ask(questionary.confirm("Clear the finished ones?", default=False, style=STYLE)):
             board.clear_finished()
-    _pause()
+    console.print()
     return True
 
 

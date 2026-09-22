@@ -77,3 +77,64 @@ def test_an_update_with_no_percent_yet_reports_nothing():
     percent_reporter(seen.append)(Update())
 
     assert seen == []
+
+
+# --- the jobs table ---------------------------------------------------------
+
+def _fake_jobs():
+    from shared.background import DONE, FAILED, RUNNING, Job
+
+    running = Job(id=1, label="Converting to mov", status=RUNNING, percent=2.0)
+    finished = Job(id=2, label="Download: a talk", status=DONE, percent=100.0)
+    broken = Job(id=3, label="Compressing", status=FAILED, detail="boom")
+    for job in (finished, broken):
+        job.finished_at = job.started_at + 12.0
+    return [running, finished, broken]
+
+
+def test_the_table_has_a_row_for_every_job():
+    from video_toolkit.tui import jobs_table
+
+    assert jobs_table(_fake_jobs()).row_count == 3
+
+
+def test_each_state_is_named():
+    from video_toolkit.tui import jobs_view_text
+
+    text = jobs_view_text(_fake_jobs(), width=90)
+
+    assert "running" in text
+    assert "done" in text
+    assert "failed" in text
+
+
+def test_progress_and_labels_reach_the_table():
+    from video_toolkit.tui import jobs_view_text
+
+    text = jobs_view_text(_fake_jobs(), width=90)
+
+    assert "Converting to mov" in text
+    assert "2%" in text
+
+
+def test_a_job_with_no_progress_yet_shows_a_dash_not_a_zero():
+    """Nought percent and "not reported yet" are different things."""
+    from shared.background import Job
+    from video_toolkit.tui import jobs_view_text
+
+    text = jobs_view_text([Job(id=1, label="starting", percent=None)], width=90)
+
+    assert "—" in text
+
+
+def test_an_empty_board_makes_an_empty_table():
+    from video_toolkit.tui import jobs_table
+
+    assert jobs_table([]).row_count == 0
+
+
+def test_the_view_says_how_to_leave_it():
+    """A screen that refreshes itself needs to say what stops it."""
+    from video_toolkit.tui import jobs_view_text
+
+    assert "key" in jobs_view_text(_fake_jobs(), width=90).lower()
