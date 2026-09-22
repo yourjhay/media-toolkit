@@ -123,8 +123,13 @@ def run_ffmpeg(
     duration: float | None = None,
     on_progress: Callable | None = None,
     runner: Callable | None = None,
+    on_start: Callable[[int], None] | None = None,
 ) -> tuple[bool, str]:
-    """Run ffmpeg, reporting progress as it goes. Returns (succeeded, message)."""
+    """Run ffmpeg, reporting progress as it goes. Returns (succeeded, message).
+
+    `on_start` is handed the process id. ffmpeg outlives this program if the
+    tool is quit, so something has to be able to find it again.
+    """
     if runner is not None:
         return runner(args, duration, on_progress)
 
@@ -136,6 +141,9 @@ def run_ffmpeg(
         text=True,
         bufsize=1,
     )
+
+    if on_start is not None:
+        on_start(process.pid)
 
     assert process.stdout is not None
     for line in process.stdout:

@@ -10,6 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import io
+import time
 
 import questionary
 from prompt_toolkit.application import Application
@@ -31,6 +32,7 @@ from rich.progress import (
 )
 from rich.table import Table
 
+from shared import joblog
 from shared.background import DONE, FAILED as JOB_FAILED, JobBoard
 from shared.chrome import choose_from_cards, print_banner
 from shared.format import human_bytes, human_duration
@@ -372,9 +374,24 @@ def _local_round(operation: str, ffmpeg: bool) -> bool:
     runners = {"convert": convert_video, "compress": compress_video, "trim": trim_video}
 
     def work(report):
-        return runners[operation](
-            info.path, dest_dir, on_progress=percent_reporter(report), **settings
-        )
+        # ffmpeg outlives this program if the tool is quit, so note where it is.
+        # Anything left running is picked up again by the next session.
+        store = joblog.default_store()
+        started: list[int] = []
+
+        def on_start(pid: int) -> None:
+            started.append(pid)
+            joblog.record(store, pid=pid, label=describe,
+                          output=str(dest_dir), command="ffmpeg")
+
+        try:
+            return runners[operation](
+                info.path, dest_dir, on_progress=percent_reporter(report),
+                on_start=on_start, **settings
+            )
+        finally:
+            for pid in started:
+                joblog.forget(store, pid)
 
     result = _maybe_background(describe, work, estimated)
     if result is None:
@@ -459,6 +476,11 @@ def jobs_view_text(jobs, width: int) -> str:
     return buffer.getvalue()
 
 
+def _job_still_alive(pid: int) -> bool:
+    """Is that adopted job still going? Tidy its record away if not."""
+    return joblog.forget_if_gone(joblog.default_store(), pid)
+
+
 def _watch_jobs() -> None:
     """Show the board and keep it current until a key is pressed.
 
@@ -473,6 +495,7 @@ def _watch_jobs() -> None:
         event.app.exit()
 
     def render():
+        board.refresh(_job_still_alive)
         return ANSI(jobs_view_text(board.jobs(), console.width))
 
     application = Application(
@@ -638,15 +661,36 @@ def _confirm_quit() -> bool:
     running = board.running_count()
     if not running:
         return True
+    plural = "s" if running != 1 else ""
+    it = "them" if running != 1 else "it"
     console.print(
-        f"\n  [yellow]{running} job{'s' if running != 1 else ''} still running. "
-        f"Quitting stops {'them' if running != 1 else 'it'}.[/yellow]\n"
+        f"\n  [yellow]{running} job{plural} still running.[/yellow]\n"
+        f"  [dim]Leaving does not stop {it} — ffmpeg keeps going on its own, and\n"
+        f"  the next run of vidkit will pick {it} up under Jobs.[/dim]\n"
     )
-    return _ask(questionary.confirm("Quit anyway?", default=False, style=STYLE))
+    return _ask(questionary.confirm("Quit?", default=True, style=STYLE))
+
+
+def _adopt_previous_jobs() -> None:
+    """Take on anything a previous session left converting."""
+    survivors = joblog.live(joblog.default_store())
+    if not survivors:
+        return
+
+    now = time.time()
+    for entry in survivors:
+        board.adopt(entry.label, entry.pid, entry.output, age=max(0.0, now - entry.started_at))
+
+    count = len(survivors)
+    console.print(
+        f"  [{ACCENT}]{count} job{'s' if count != 1 else ''} from an earlier run "
+        f"{'are' if count != 1 else 'is'} still going.[/{ACCENT}] [dim]See Jobs.[/dim]\n"
+    )
 
 
 def main() -> int:
     _banner()
+    _adopt_previous_jobs()
     try:
         while True:
             if not _round_or_back():

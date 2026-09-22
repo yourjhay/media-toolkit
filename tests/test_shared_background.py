@@ -187,3 +187,74 @@ def test_a_percent_is_kept_inside_nought_to_a_hundred():
     board.wait_all(timeout=2)
 
     assert [job.percent for job in board.jobs()] == [100.0, 0.0]
+
+
+# --- jobs that outlived the session which started them -----------------------
+
+def test_a_job_from_a_previous_run_can_be_adopted():
+    """ffmpeg survives the tool exiting, so the next run should show it."""
+    board = JobBoard()
+
+    job = board.adopt("Converting to mov", pid=4321, output="/out/a.mov", age=90.0)
+
+    assert job.status == RUNNING
+    assert job.pid == 4321
+    assert job.elapsed >= 90.0
+    assert board.running_count() == 1
+
+
+def test_an_adopted_job_is_marked_finished_once_its_process_goes():
+    board = JobBoard()
+    board.adopt("Converting", pid=4321, output=None, age=1.0)
+
+    board.refresh(is_alive=lambda pid: False)
+
+    assert board.jobs()[0].status == DONE
+
+
+def test_an_adopted_job_still_running_is_left_alone():
+    board = JobBoard()
+    board.adopt("Converting", pid=4321, output=None, age=1.0)
+
+    board.refresh(is_alive=lambda pid: True)
+
+    assert board.jobs()[0].status == RUNNING
+
+
+def test_refreshing_does_not_disturb_jobs_this_session_started():
+    """Those have a thread reporting for them; their state is already right."""
+    board = JobBoard()
+    board.start("mine", lambda on_progress: None)
+    board.wait_all(timeout=2)
+
+    board.refresh(is_alive=lambda pid: False)
+
+    assert board.jobs()[0].status == DONE
+
+
+def test_an_adopted_job_reports_no_progress_rather_than_a_made_up_figure():
+    """Its progress was on a pipe this process no longer holds."""
+    board = JobBoard()
+
+    job = board.adopt("Converting", pid=1, output=None, age=1.0)
+
+    assert job.percent is None
+
+
+def test_the_pids_of_running_jobs_can_be_listed_for_stopping():
+    board = JobBoard()
+    board.adopt("a", pid=11, output=None, age=1.0)
+    board.adopt("b", pid=22, output=None, age=1.0)
+
+    assert set(board.running_pids()) == {11, 22}
+
+
+def test_a_job_with_no_pid_is_not_offered_for_stopping():
+    board = JobBoard()
+    release = threading.Event()
+    board.start("threaded", lambda on_progress: release.wait(2))
+    try:
+        assert board.running_pids() == []
+    finally:
+        release.set()
+        board.wait_all(timeout=2)

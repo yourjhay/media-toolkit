@@ -26,6 +26,9 @@ class Job:
     result: Any = None
     started_at: float = field(default_factory=time.monotonic)
     finished_at: float | None = None
+    # Set only for a job adopted from an earlier run, where the work is a
+    # process we did not start and have no pipe to.
+    pid: int | None = None
 
     @property
     def elapsed(self) -> float:
@@ -87,6 +90,39 @@ class JobBoard:
             self._threads[job.id] = thread
         thread.start()
         return job
+
+    def adopt(self, label: str, pid: int, output: str | None, age: float) -> Job:
+        """Take on a job left running by a previous session.
+
+        There is no thread and no progress pipe — only a process id — so its
+        state is worked out by asking whether that process is still there.
+        """
+        with self._lock:
+            job = Job(
+                id=self._next_id,
+                label=label,
+                pid=pid,
+                started_at=time.monotonic() - age,
+            )
+            job.detail = f"started before this session; writing to {output}" if output else ""
+            self._next_id += 1
+            self._jobs.append(job)
+        return job
+
+    def refresh(self, is_alive: Callable[[int], bool]) -> None:
+        """Update adopted jobs by checking whether their process is still there."""
+        with self._lock:
+            adopted = [job for job in self._jobs if job.pid is not None and job.is_running]
+        for job in adopted:
+            if not is_alive(job.pid):
+                with self._lock:
+                    job.status = DONE
+                    job.percent = 100.0
+                    job.finished_at = time.monotonic()
+
+    def running_pids(self) -> list[int]:
+        with self._lock:
+            return [job.pid for job in self._jobs if job.is_running and job.pid is not None]
 
     def jobs(self) -> list[Job]:
         with self._lock:

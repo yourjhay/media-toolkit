@@ -58,6 +58,7 @@ def convert_video(
     on_progress: Callable | None = None,
     probe: Callable | None = None,
     runner: Callable | None = None,
+    on_start: Callable | None = None,
 ) -> EncodeResult:
     """Put the file into another container, repackaging where possible."""
     src, dest_dir = Path(src), Path(dest_dir)
@@ -83,7 +84,7 @@ def convert_video(
     dest_dir.mkdir(parents=True, exist_ok=True)
     ok, message = run_ffmpeg(
         build_convert_args(src, out, plan, reencode_bitrate(info.video_bitrate)),
-        info.duration, on_progress, runner,
+        info.duration, on_progress, runner, on_start,
     )
     return _finish(src, out, ok, message, plan.reason, plan.lossless)
 
@@ -97,6 +98,7 @@ def compress_video(
     on_progress: Callable | None = None,
     probe: Callable | None = None,
     runner: Callable | None = None,
+    on_start: Callable | None = None,
 ) -> EncodeResult:
     """Re-encode the file to land near a target size."""
     src, dest_dir = Path(src), Path(dest_dir)
@@ -130,7 +132,7 @@ def compress_video(
     dest_dir.mkdir(parents=True, exist_ok=True)
     ok, message = run_ffmpeg(
         build_compress_args(src, out, video_bitrate, audio_bitrate or None, encoder),
-        info.duration, on_progress, runner,
+        info.duration, on_progress, runner, on_start,
     )
 
     detail = f"{video_bitrate // 1000} kbps video via {encoder}"
@@ -158,6 +160,7 @@ def trim_video(
     on_progress: Callable | None = None,
     probe: Callable | None = None,
     runner: Callable | None = None,
+    on_start: Callable | None = None,
 ) -> EncodeResult:
     """Keep only the piece between `start` and `end`."""
     src, dest_dir = Path(src), Path(dest_dir)
@@ -180,7 +183,7 @@ def trim_video(
     dest_dir.mkdir(parents=True, exist_ok=True)
     ok, message = run_ffmpeg(
         build_trim_args(src, out, start, end, precise, encoder),
-        end - start, on_progress, runner,
+        end - start, on_progress, runner, on_start,
     )
 
     span = f"{format_timecode(start)} to {format_timecode(end)}"
