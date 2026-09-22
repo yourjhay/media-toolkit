@@ -137,7 +137,7 @@ or gone rather than that something is broken.
 ## Install
 
 ```bash
-git clone git@github.com:yourjhay/media-toolkit.git
+git clone https://github.com/yourjhay/media-toolkit.git
 cd media-toolkit
 ./setup.sh
 ```
