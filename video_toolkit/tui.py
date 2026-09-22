@@ -47,7 +47,7 @@ from .containers import playback_warning, plan_conversion, supported_targets
 from .download import OK as DOWNLOAD_OK
 from .download import download, ffmpeg_available, probe
 from .failures import failure_hint, is_transient
-from .media import probe_media
+from .media import probe_media, read_progress_file
 from .operations import OK as ENCODE_OK
 from .operations import OVER, SKIPPED
 from .tasks import compress_video, convert_video, trim_video
@@ -374,24 +374,28 @@ def _local_round(operation: str, ffmpeg: bool) -> bool:
     runners = {"convert": convert_video, "compress": compress_video, "trim": trim_video}
 
     def work(report):
-        # ffmpeg outlives this program if the tool is quit, so note where it is.
-        # Anything left running is picked up again by the next session.
+        # ffmpeg outlives this program if the tool is quit, so note where it is
+        # and where it is reporting to. Progress goes to a file rather than a
+        # pipe precisely so a later session can still read it.
         store = joblog.default_store()
+        progress_file = joblog.new_progress_path()
         started: list[int] = []
 
         def on_start(pid: int) -> None:
             started.append(pid)
-            joblog.record(store, pid=pid, label=describe,
-                          output=str(dest_dir), command="ffmpeg")
+            joblog.record(store, pid=pid, label=describe, output=str(dest_dir),
+                          command="ffmpeg", progress=str(progress_file),
+                          duration=info.duration)
 
         try:
             return runners[operation](
                 info.path, dest_dir, on_progress=percent_reporter(report),
-                on_start=on_start, **settings
+                on_start=on_start, progress_to=str(progress_file), **settings
             )
         finally:
             for pid in started:
-                joblog.forget(store, pid)
+                joblog.forget(store, pid)      # takes the progress file with it
+            progress_file.unlink(missing_ok=True)
 
     result = _maybe_background(describe, work, estimated)
     if result is None:
@@ -481,6 +485,24 @@ def _job_still_alive(pid: int) -> bool:
     return joblog.forget_if_gone(joblog.default_store(), pid)
 
 
+def _refresh_adopted() -> None:
+    """Bring adopted jobs up to date from the files ffmpeg is writing.
+
+    Their progress was on a pipe belonging to a process that is gone, but the
+    same numbers are in a file, which anyone can read.
+    """
+    records = {entry.pid: entry for entry in joblog.read(joblog.default_store())}
+    for job in board.jobs():
+        if job.pid is None or not job.is_running:
+            continue
+        entry = records.get(job.pid)
+        if entry and entry.progress:
+            update = read_progress_file(entry.progress, entry.duration)
+            if update is not None:
+                board.set_percent(job.id, update.percent)
+    board.refresh(_job_still_alive)
+
+
 def _watch_jobs() -> None:
     """Show the board and keep it current until a key is pressed.
 
@@ -495,7 +517,7 @@ def _watch_jobs() -> None:
         event.app.exit()
 
     def render():
-        board.refresh(_job_still_alive)
+        _refresh_adopted()
         return ANSI(jobs_view_text(board.jobs(), console.width))
 
     application = Application(

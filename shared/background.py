@@ -120,6 +120,16 @@ class JobBoard:
                     job.percent = 100.0
                     job.finished_at = time.monotonic()
 
+    def set_percent(self, job_id: int, percent: float | None) -> None:
+        """Report progress for a job nothing in this process is running."""
+        if percent is None:
+            return
+        with self._lock:
+            for job in self._jobs:
+                if job.id == job_id:
+                    job.percent = max(0.0, min(100.0, float(percent)))
+                    return
+
     def running_pids(self) -> list[int]:
         with self._lock:
             return [job.pid for job in self._jobs if job.is_running and job.pid is not None]

@@ -134,3 +134,26 @@ class ProgressReader:
 
         self._fields.clear()
         return EncodeProgress(seconds=seconds, percent=percent, speed=speed, finished=finished)
+
+
+def read_progress_file(path, duration: float | None) -> EncodeProgress | None:
+    """The latest complete block from an ffmpeg `-progress` file.
+
+    Written to a file rather than a pipe so that a job outliving the session
+    which started it can still be followed. The file is read while ffmpeg is
+    writing it, so a trailing partial block is expected and skipped.
+    """
+    try:
+        text = Path(path).read_text()
+    except OSError:
+        return None
+    if not text.strip():
+        return None
+
+    reader = ProgressReader(duration)
+    latest = None
+    for line in text.splitlines():
+        update = reader.feed(line)
+        if update is not None:
+            latest = update
+    return latest

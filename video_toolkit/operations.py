@@ -7,12 +7,13 @@ in tests without encoding anything. Running them is separate.
 from __future__ import annotations
 
 import subprocess
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
 from .containers import COPY, ConversionPlan
-from .media import ProgressReader
+from .media import ProgressReader, read_progress_file
 
 OK = "ok"
 SKIPPED = "skipped"
@@ -25,10 +26,10 @@ _MAXRATE_FACTOR = 1.5
 _BUFSIZE_FACTOR = 2.0
 
 
-def _base(src: Path) -> list[str]:
+def _base(src: Path, progress_to: str = "pipe:1") -> list[str]:
     return [
         "-hide_banner", "-loglevel", "error", "-nostats",
-        "-progress", "pipe:1", "-y", "-i", str(src),
+        "-progress", progress_to, "-y", "-i", str(src),
     ]
 
 
@@ -46,8 +47,9 @@ def build_convert_args(
     out: Path,
     plan: ConversionPlan,
     video_bitrate: int | None = None,
+    progress_to: str = "pipe:1",
 ) -> list[str]:
-    args = _base(src)
+    args = _base(src, progress_to)
     if plan.video is not None:
         args += ["-c:v", "copy" if plan.video == COPY else plan.video_encoder]
         if plan.video != COPY and video_bitrate:
@@ -63,8 +65,9 @@ def build_compress_args(
     video_bitrate: int,
     audio_bitrate: int | None,
     video_encoder: str,
+    progress_to: str = "pipe:1",
 ) -> list[str]:
-    args = _base(src)
+    args = _base(src, progress_to)
     args += [
         "-c:v", video_encoder,
         "-b:v", str(video_bitrate),
@@ -85,6 +88,7 @@ def build_trim_args(
     end: float,
     precise: bool,
     video_encoder: str = "libx264",
+    progress_to: str = "pipe:1",
 ) -> list[str]:
     if end <= start:
         raise ValueError("The end must come after the start")
@@ -92,7 +96,7 @@ def build_trim_args(
     if precise:
         # Seeking after the input is frame-accurate but has to decode up to the
         # cut, so the streams must be re-encoded.
-        args = _base(src) + ["-ss", str(start), "-to", str(end),
+        args = _base(src, progress_to) + ["-ss", str(start), "-to", str(end),
                              "-c:v", video_encoder, "-c:a", "aac"]
         return _finish(args, out)
 
@@ -102,7 +106,7 @@ def build_trim_args(
     # A duration rather than an end time: after an input-side seek ffmpeg
     # measures -to from the seek point, so -ss 10 -to 20 yields twenty seconds
     # rather than ten. -t means the same thing whichever side it lands on.
-    head = ["-hide_banner", "-loglevel", "error", "-nostats", "-progress", "pipe:1", "-y"]
+    head = ["-hide_banner", "-loglevel", "error", "-nostats", "-progress", progress_to, "-y"]
     args = head + ["-ss", str(start), "-t", str(end - start), "-i", str(src), "-c", "copy"]
     return _finish(args, out)
 
@@ -133,7 +137,7 @@ def run_ffmpeg(
     if runner is not None:
         return runner(args, duration, on_progress)
 
-    reader = ProgressReader(duration)
+    writes_to_file = "pipe:1" not in args
     process = subprocess.Popen(
         ["ffmpeg", *args],
         stdout=subprocess.PIPE,
@@ -145,11 +149,21 @@ def run_ffmpeg(
     if on_start is not None:
         on_start(process.pid)
 
-    assert process.stdout is not None
-    for line in process.stdout:
-        update = reader.feed(line)
-        if update is not None and on_progress is not None:
-            on_progress(update)
+    if writes_to_file:
+        # Progress is going to a file, which anyone can read — including a
+        # later run of the tool, if this one is closed before ffmpeg finishes.
+        target = args[args.index("-progress") + 1]
+        while process.poll() is None:
+            update = read_progress_file(target, duration)
+            if update is not None and on_progress is not None:
+                on_progress(update)
+            time.sleep(0.25)
+    else:
+        assert process.stdout is not None
+        for line in process.stdout:
+            update = ProgressReader(duration).feed(line)
+            if update is not None and on_progress is not None:
+                on_progress(update)
 
     _, errors = process.communicate()
     if process.returncode != 0:

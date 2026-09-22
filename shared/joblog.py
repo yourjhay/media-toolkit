@@ -11,7 +11,9 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import tempfile
 import time
+import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable
@@ -24,6 +26,10 @@ class Record:
     output: str | None
     command: str
     started_at: float
+    # Where ffmpeg is writing its progress, and the length it is working
+    # through, so a later session can work out how far along it is.
+    progress: str | None = None
+    duration: float | None = None
 
 
 def default_store() -> Path:
@@ -57,14 +63,40 @@ def read(store: Path) -> list[Record]:
     return records
 
 
-def record(store: Path, pid: int, label: str, output: str | None, command: str) -> None:
+def new_progress_path() -> Path:
+    """A fresh file for ffmpeg to report progress into."""
+    folder = default_store().parent / "progress"
+    try:
+        folder.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        folder = Path(tempfile.gettempdir())
+    return folder / f"{uuid.uuid4().hex}.txt"
+
+
+def record(
+    store: Path,
+    pid: int,
+    label: str,
+    output: str | None,
+    command: str,
+    progress: str | None = None,
+    duration: float | None = None,
+) -> None:
     rows = _load(store)
-    rows.append(asdict(Record(pid=pid, label=label, output=output,
-                              command=command, started_at=time.time())))
+    rows.append(asdict(Record(pid=pid, label=label, output=output, command=command,
+                              started_at=time.time(), progress=progress,
+                              duration=duration)))
     _save(store, rows)
 
 
 def forget(store: Path, pid: int) -> None:
+    """Drop a record, taking its progress file with it."""
+    for row in _load(store):
+        if row.get("pid") == pid and row.get("progress"):
+            try:
+                Path(row["progress"]).unlink(missing_ok=True)
+            except OSError:
+                pass
     _save(store, [row for row in _load(store) if row.get("pid") != pid])
 
 
@@ -92,10 +124,29 @@ def process_alive(pid: int, command: str) -> bool:
     return bool(running) and marker in running
 
 
+def _discard_progress(entry: Record) -> None:
+    if not entry.progress:
+        return
+    try:
+        Path(entry.progress).unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
 def live(store: Path, is_alive: Callable[[int, str], bool] | None = None) -> list[Record]:
-    """The jobs still genuinely running, pruning the file of those that are not."""
+    """The jobs still genuinely running, pruning the file of those that are not.
+
+    A pruned job's progress file goes with it. Without that, every quit taken
+    while something was converting would leave one behind for good.
+    """
     check = is_alive or process_alive
-    survivors = [entry for entry in read(store) if check(entry.pid, entry.command)]
+    survivors, finished = [], []
+    for entry in read(store):
+        (survivors if check(entry.pid, entry.command) else finished).append(entry)
+
+    for entry in finished:
+        _discard_progress(entry)
+
     _save(store, [asdict(entry) for entry in survivors])
     return survivors
 

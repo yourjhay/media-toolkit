@@ -147,3 +147,48 @@ def test_asking_about_an_unknown_pid_reports_it_gone(tmp_path):
     store = tmp_path / "jobs.json"
 
     assert joblog.forget_if_gone(store, pid=999, is_alive=lambda pid, command: False) is False
+
+
+def test_pruning_a_dead_record_deletes_its_tracking_file(tmp_path):
+    """Otherwise every force-quit leaves a file behind for ever."""
+    store = tmp_path / "jobs.json"
+    tracker = tmp_path / "prog.txt"
+    tracker.write_text("out_time_us=1\nprogress=continue\n")
+    joblog.record(store, pid=1, label="a", output=None, command="ffmpeg a",
+                  progress=str(tracker))
+
+    joblog.live(store, is_alive=lambda pid, command: False)
+
+    assert joblog.read(store) == []
+    assert not tracker.exists()
+
+
+def test_pruning_leaves_the_tracking_file_of_a_live_job_alone(tmp_path):
+    store = tmp_path / "jobs.json"
+    tracker = tmp_path / "prog.txt"
+    tracker.write_text("out_time_us=1\n")
+    joblog.record(store, pid=1, label="a", output=None, command="ffmpeg a",
+                  progress=str(tracker))
+
+    joblog.live(store, is_alive=lambda pid, command: True)
+
+    assert tracker.exists()
+
+
+def test_a_record_with_no_tracking_file_prunes_without_complaint(tmp_path):
+    store = tmp_path / "jobs.json"
+    joblog.record(store, pid=1, label="a", output=None, command="ffmpeg a")
+
+    joblog.live(store, is_alive=lambda pid, command: False)
+
+    assert joblog.read(store) == []
+
+
+def test_a_tracking_file_already_gone_is_not_an_error(tmp_path):
+    store = tmp_path / "jobs.json"
+    joblog.record(store, pid=1, label="a", output=None, command="ffmpeg a",
+                  progress=str(tmp_path / "never-existed.txt"))
+
+    joblog.live(store, is_alive=lambda pid, command: False)
+
+    assert joblog.read(store) == []
