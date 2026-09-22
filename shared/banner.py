@@ -12,7 +12,6 @@ from __future__ import annotations
 
 RGB = tuple[int, int, int]
 
-BYLINE = "by rj"
 
 GRADIENT_START: RGB = (0, 214, 170)   # teal
 GRADIENT_END: RGB = (110, 130, 255)   # periwinkle
@@ -158,9 +157,7 @@ def banner_lines(width: int, title: str) -> list[str]:
     """
     art, art_width = _art_for(width, title)
     left = max(0, (width - art_width) // 2)
-    lines = [(" " * left + row).ljust(width)[:width] for row in art]
-    byline = (" " * left + BYLINE.rjust(art_width)).ljust(width)[:width]
-    return [*lines, byline]
+    return [(" " * left + row).ljust(width)[:width] for row in art]
 
 
 def gradient_colors(steps: int, start: RGB, end: RGB) -> list[RGB]:

@@ -1,7 +1,6 @@
 import pytest
 
 from shared.banner import (
-    BYLINE,
     MissingGlyph,
     banner_lines,
     big_width,
@@ -28,7 +27,7 @@ def test_every_line_fills_the_terminal_width_exactly(title, width):
 def test_a_wide_terminal_gets_the_big_font(title):
     lines = banner_lines(big_width(title), title)
 
-    assert len(lines) == 7, "six art rows plus the byline"
+    assert len(lines) == 6, "six art rows"
     assert "█" in lines[0]
 
 
@@ -36,7 +35,7 @@ def test_a_wide_terminal_gets_the_big_font(title):
 def test_a_medium_terminal_steps_down_to_the_compact_font(title):
     lines = banner_lines(big_width(title) - 1, title)
 
-    assert len(lines) == 4, "three art rows plus the byline"
+    assert len(lines) == 3, "three art rows"
     assert "█" not in lines[0]
     assert "╦" in lines[0] or "╔" in lines[0]
 
@@ -45,9 +44,8 @@ def test_a_medium_terminal_steps_down_to_the_compact_font(title):
 def test_a_narrow_terminal_falls_back_to_plain_text(title):
     lines = banner_lines(medium_width(title) - 1, title)
 
-    assert len(lines) == 2
+    assert len(lines) == 1
     assert title in lines[0]
-    assert BYLINE in lines[1]
 
 
 @pytest.mark.parametrize("title", TITLES)
@@ -57,17 +55,6 @@ def test_art_is_centred_in_the_terminal(title):
     right = len(first) - len(first.rstrip())
 
     assert abs(left - right) <= 1
-
-
-def test_byline_credits_rj():
-    assert banner_lines(100, "IMG TOOLKIT")[-1].rstrip().endswith(BYLINE)
-
-
-def test_byline_sits_under_the_right_edge_of_the_art():
-    lines = banner_lines(100, "IMG TOOLKIT")
-    art_right = max(len(line.rstrip()) for line in lines[:-1])
-
-    assert len(lines[-1].rstrip()) == art_right
 
 
 def test_every_glyph_is_rectangular_and_the_same_height():

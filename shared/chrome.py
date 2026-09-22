@@ -27,11 +27,9 @@ def gradient_line(line: str) -> Text:
 
 def print_banner(console, title: str, subtitle: str) -> None:
     width = console.width
-    *art, byline = banner_lines(width, title)
     console.print()
-    for line in art:
+    for line in banner_lines(width, title):
         console.print(gradient_line(line))
-    console.print(Text(byline, style="italic dim"))
     tagline = subtitle_for(width, subtitle)
     if tagline:
         console.print(Text(tagline.center(width), style="dim"))
