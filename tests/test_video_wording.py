@@ -126,3 +126,24 @@ def test_watching_jobs_writes_nothing():
     from video_toolkit.planning import READ_ONLY
 
     assert "jobs" in READ_ONLY
+
+
+def test_the_link_prompt_explains_what_it_takes():
+    """Arriving at a bare "Link:" tells you nothing about what it accepts."""
+    from video_toolkit.planning import LINK_HELP
+
+    assert "YouTube" in LINK_HELP
+    assert "playlist" in LINK_HELP.lower()
+
+
+def test_the_link_help_points_at_the_read_only_option():
+    from video_toolkit.planning import LINK_HELP
+
+    assert "List formats" in LINK_HELP
+
+
+def test_the_link_help_fits_a_narrow_terminal():
+    """Printed as written, so an over-long line would wrap raggedly."""
+    from video_toolkit.planning import LINK_HELP
+
+    assert all(len(line) <= 72 for line in LINK_HELP.splitlines())

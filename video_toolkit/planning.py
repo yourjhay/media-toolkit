@@ -8,6 +8,16 @@ from .formats import AUDIO, MODES, VIDEO
 
 QUIT = "__quit__"
 
+# Shown above the link prompt. Names the sites people actually arrive with,
+# says what a playlist link does, and points at the read-only card for anyone
+# who wants to look before committing to a download.
+LINK_HELP = (
+    "Paste a video link — YouTube, TikTok, Instagram, X, Reddit,\n"
+    "Vimeo, SoundCloud, Twitch and many more.\n"
+    "A playlist link fetches every video in it.\n"
+    "List formats shows what a link offers without downloading."
+)
+
 OPERATIONS: dict[str, str] = {
     "download": "Download a video",
     "audio": "Download the audio only",

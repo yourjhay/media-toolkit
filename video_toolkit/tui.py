@@ -55,6 +55,7 @@ from .speed import describe_wait, estimate_encode_seconds, is_slow
 from .timecode import format_timecode, parse_timecode
 from .formats import AUDIO, MP3, VIDEO, quality_warning, readable_formats
 from .planning import (
+    LINK_HELP,
     LOCAL,
     SIZE_PRESETS,
     VIDEO_SUFFIXES,
@@ -122,6 +123,10 @@ def _choose_operation() -> str:
 
 
 def _ask_url() -> str:
+    for line in LINK_HELP.splitlines():
+        console.print(f"  [dim]{line}[/dim]")
+    console.print()
+
     while True:
         try:
             return clean_url(ask_text_or_back("Link:"))
