@@ -47,11 +47,42 @@ done
 
 # ---------------------------------------------------------------- virtualenv
 
+venv_works() {
+  # A directory called .venv is not the same thing as a usable one. A creation
+  # that failed part way leaves the folder behind with no pip inside it, and
+  # every later run would then skip creation and fail on the missing pip.
+  [ -x .venv/bin/python ] && .venv/bin/python -m pip --version >/dev/null 2>&1
+}
+
+missing_venv_module() {
+  cat >&2 <<MSG
+
+Could not build a working virtualenv.
+
+On Debian or Ubuntu the venv module is packaged separately from Python:
+
+  sudo apt install python3-venv python3-pip
+
+Then run ./setup.sh again.
+MSG
+  exit 1
+}
+
 if [ "$SKIP_VENV" = "no" ]; then
+  if [ -d .venv ] && ! venv_works; then
+    echo "The existing virtualenv is incomplete. Rebuilding it..."
+    rm -rf .venv
+  fi
+
   if [ ! -d .venv ]; then
     echo "Creating virtualenv..."
-    "$PYTHON" -m venv .venv
+    "$PYTHON" -m venv .venv || missing_venv_module
   fi
+
+  # A venv can be created without pip when ensurepip is unavailable. Try to
+  # put it there before giving up.
+  venv_works || .venv/bin/python -m ensurepip --upgrade >/dev/null 2>&1 || true
+  venv_works || missing_venv_module
 
   echo "Installing dependencies..."
   .venv/bin/python -m pip install --quiet --upgrade pip
