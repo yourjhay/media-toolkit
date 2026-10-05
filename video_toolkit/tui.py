@@ -7,6 +7,7 @@ toolkit.
 
 from __future__ import annotations
 
+from functools import partial
 from pathlib import Path
 
 import io
@@ -43,11 +44,13 @@ from shared.prompts import ask_path as _shared_ask_path
 from shared.prompts import pause as _pause
 from shared.settings import recall_path, remember_path
 
+from .batch import BatchResult, estimated_seconds, find_videos, plan_batch, run_batch
 from .containers import playback_warning, plan_conversion, supported_targets
 from .download import OK as DOWNLOAD_OK
 from .download import download, ffmpeg_available, probe
 from .failures import failure_hint, is_transient
-from .media import probe_media, read_progress_file
+from .media import MediaInfo, probe_media, read_progress_file
+from .operations import FAILED as ENCODE_FAILED
 from .operations import OK as ENCODE_OK
 from .operations import OVER, SKIPPED
 from .tasks import compress_video, convert_video, trim_video
@@ -252,9 +255,13 @@ def _media_panel(info) -> Panel:
     return Panel(table, title="Source", border_style=ACCENT, title_align="left")
 
 
-def _ask_media_file() -> "object":
+def _ask_media_file(allow_folder: bool = False) -> MediaInfo | Path:
+    """A video to work on, read and ready — or, where allowed, a whole folder."""
+    message = "Video file or folder:" if allow_folder else "Video file:"
     while True:
-        path = _shared_ask_path(console, "Video file:")
+        path = _shared_ask_path(console, message)
+        if allow_folder and path.is_dir():
+            return path
         if not path.is_file():
             console.print(f"[red]No such file:[/red] {path}\n")
             continue
@@ -283,6 +290,29 @@ def _ask_int_mb() -> int:
     from shared.prompts import ask_int
 
     return ask_int("Target size in MB:", 25, 1, 100_000)
+
+
+def _ask_convert_target() -> str:
+    return _ask(
+        questionary.select(
+            "Convert to:",
+            choices=[Choice(ext.upper(), ext) for ext in supported_targets()],
+            style=STYLE,
+        )
+    )
+
+
+def _ask_reencode_for_playback() -> bool:
+    return _ask(
+        questionary.select(
+            "Video:",
+            choices=[
+                Choice("Re-encode to H.264  —  plays everywhere", True),
+                Choice("Copy as-is  —  instant and lossless, may not play", False),
+            ],
+            style=STYLE,
+        )
+    )
 
 
 def _ask_trim_range(info):
@@ -314,31 +344,19 @@ def _local_round(operation: str, ffmpeg: bool) -> bool:
         _pause()
         return True
 
-    info = _ask_media_file()
+    source = _ask_media_file(allow_folder=operation == "convert")
+    if isinstance(source, Path):
+        return _convert_folder_round(source)
+    info = source
     console.print(_media_panel(info))
 
     if operation == "convert":
-        target = _ask(
-            questionary.select(
-                "Convert to:",
-                choices=[Choice(ext.upper(), ext) for ext in supported_targets()],
-                style=STYLE,
-            )
-        )
+        target = _ask_convert_target()
         force = False
         warning = playback_warning(info.video_codec, target)
         if warning:
             console.print(f"  [yellow]{warning}[/yellow]\n")
-            force = _ask(
-                questionary.select(
-                    "Video:",
-                    choices=[
-                        Choice("Re-encode to H.264  —  plays everywhere", True),
-                        Choice("Copy as-is  —  instant and lossless, may not play", False),
-                    ],
-                    style=STYLE,
-                )
-            )
+            force = _ask_reencode_for_playback()
 
         plan = plan_conversion(
             info.video_codec, info.audio_codec, target,
@@ -380,28 +398,10 @@ def _local_round(operation: str, ffmpeg: bool) -> bool:
     runners = {"convert": convert_video, "compress": compress_video, "trim": trim_video}
 
     def work(report):
-        # ffmpeg outlives this program if the tool is quit, so note where it is
-        # and where it is reporting to. Progress goes to a file rather than a
-        # pipe precisely so a later session can still read it.
-        store = joblog.default_store()
-        progress_file = joblog.new_progress_path()
-        started: list[int] = []
-
-        def on_start(pid: int) -> None:
-            started.append(pid)
-            joblog.record(store, pid=pid, label=describe, output=str(dest_dir),
-                          command="ffmpeg", progress=str(progress_file),
-                          duration=info.duration)
-
-        try:
-            return runners[operation](
-                info.path, dest_dir, on_progress=percent_reporter(report),
-                on_start=on_start, progress_to=str(progress_file), **settings
-            )
-        finally:
-            for pid in started:
-                joblog.forget(store, pid)      # takes the progress file with it
-            progress_file.unlink(missing_ok=True)
+        return _tracked(
+            partial(runners[operation], info.path, dest_dir, **settings),
+            describe, dest_dir, info.duration, report,
+        )
 
     result = _maybe_background(describe, work, estimated)
     if result is None:
@@ -420,6 +420,143 @@ def _local_round(operation: str, ffmpeg: bool) -> bool:
     else:
         console.print(f"\n  [red]Failed.[/red] [dim]{result.detail}[/dim]\n")
 
+    _pause()
+    return True
+
+
+def _tracked(run, label: str, output: Path, duration: float | None, report):
+    """Run one ffmpeg task, leaving a note of it for a later session.
+
+    ffmpeg outlives this program if the tool is quit, so note where it is and
+    where it is reporting to. Progress goes to a file rather than a pipe
+    precisely so a later session can still read it. `run` is a task from
+    `tasks` with its file and settings already filled in.
+    """
+    store = joblog.default_store()
+    progress_file = joblog.new_progress_path()
+    started: list[int] = []
+
+    def on_start(pid: int) -> None:
+        started.append(pid)
+        joblog.record(store, pid=pid, label=label, output=str(output),
+                      command="ffmpeg", progress=str(progress_file),
+                      duration=duration)
+
+    try:
+        return run(on_progress=percent_reporter(report), on_start=on_start,
+                   progress_to=str(progress_file))
+    finally:
+        for pid in started:
+            joblog.forget(store, pid)      # takes the progress file with it
+        progress_file.unlink(missing_ok=True)
+
+
+def _shown(path: Path, root: Path) -> str:
+    """A file's name as it sits under the folder that was chosen."""
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return path.name
+
+
+def _list_unconverted(results, root: Path) -> None:
+    """Why each file was left alone. A bare count leaves people guessing."""
+    for result in results:
+        if result.status == SKIPPED:
+            console.print(f"  [dim]· {_shown(result.source, root)}: {result.detail}[/dim]")
+        elif result.status == ENCODE_FAILED:
+            console.print(f"  [red]·[/red] {_shown(result.source, root)}: [dim]{result.detail}[/dim]")
+
+
+def _folder_panel(root: Path, items, settled) -> Panel:
+    table = Table(show_header=False, box=None, padding=(0, 2))
+    table.add_row("Folder", f"[bold]{root.name or root}[/bold]")
+    table.add_row("Videos", str(len(items) + len(settled)))
+    if items:
+        table.add_row("Size", human_bytes(sum(item.info.size_bytes for item in items)))
+    repackage = sum(1 for item in items if item.lossless)
+    if repackage:
+        table.add_row("Repackage", f"[green]{repackage}[/green]  [dim]instant, video untouched[/dim]")
+    if len(items) > repackage:
+        table.add_row("Re-encode", f"[yellow]{len(items) - repackage}[/yellow]")
+    if settled:
+        table.add_row("Leaving", f"{len(settled)}  [dim]reasons below[/dim]")
+    table.add_row("Where", str(root))
+    return Panel(table, title="Source", border_style=ACCENT, title_align="left")
+
+
+def _convert_folder_round(root: Path) -> bool:
+    """Convert every video in a folder to the one format asked for."""
+    recursive = False
+    if any(path.is_dir() and not path.name.startswith(".") for path in root.iterdir()):
+        recursive = _ask(questionary.confirm("Include subfolders?", default=False, style=STYLE))
+
+    # Checked before asking anything else, so an empty folder costs one answer.
+    if not find_videos(root, recursive):
+        console.print("[yellow]No videos found there.[/yellow]\n")
+        _pause()
+        return True
+
+    target = _ask_convert_target()
+    dest_dir = _ask_dest(LOCAL_DEST, root / "converted")
+
+    files = find_videos(root, recursive, exclude=[dest_dir])
+    with console.status(f"[dim]Reading {download_noun(VIDEO, len(files))}…[/dim]", spinner="dots"):
+        infos = [probe_media(path) for path in files]
+
+    # Asked once for the folder, and applied only to the files it concerns.
+    awkward = [info for info in infos if not info.error and playback_warning(info.video_codec, target)]
+    force = False
+    if awkward:
+        codecs = ", ".join(sorted({info.video_codec for info in awkward}))
+        console.print(
+            f"  [yellow]{len(awkward)} of these {'is' if len(awkward) == 1 else 'are'} {codecs}, "
+            f"which can be copied into {target} without re-encoding, but Apple's own "
+            f"players do not open it. VLC and IINA will.[/yellow]\n"
+        )
+        force = _ask_reencode_for_playback()
+
+    items, settled = plan_batch(infos, root, dest_dir, target, force_awkward=force)
+    console.print(_folder_panel(root, items, settled))
+    _list_unconverted(settled, root)
+    console.print()
+
+    if not items:
+        console.print("  [yellow]Nothing there needs converting.[/yellow]\n")
+        _pause()
+        return True
+
+    count = download_noun(VIDEO, len(items))
+    if not _ask(questionary.confirm(f"Convert {count}?", default=True, style=STYLE)):
+        console.print("[dim]Cancelled.[/dim]\n")
+        return True
+
+    def convert_one(item, report):
+        return _tracked(
+            partial(convert_video, item.info.path, item.dest_dir, target,
+                    force_video_encode=item.force_video_encode,
+                    probe=lambda _path: item.info),   # read a moment ago
+            f"Converting {item.info.path.name} to {target}",
+            item.dest_dir, item.info.duration, report,
+        )
+
+    def work(report):
+        return BatchResult(run_batch(items, convert_one, report) + settled, dest_dir)
+
+    batch = _maybe_background(f"Converting {count} to {target}", work, estimated_seconds(items))
+    if batch is None:
+        return True  # running behind us; Jobs has it from here
+
+    converted = batch.of_status(ENCODE_OK)
+    if converted:
+        console.print(f"\n  [green]Converted {download_noun(VIDEO, len(converted))}[/green]  "
+                      f"{human_bytes(batch.source_bytes)} → {human_bytes(batch.output_bytes)}")
+        console.print(f"  [bold]{batch.output}[/bold]")
+    else:
+        console.print("\n  [yellow]Nothing was converted.[/yellow]")
+    # Only this run's own; the files left alone were listed before it began.
+    _list_unconverted(batch.results[:len(items)], root)
+    console.print()
     _pause()
     return True
 

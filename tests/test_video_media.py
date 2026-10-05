@@ -95,6 +95,24 @@ def test_a_failing_probe_is_reported_not_raised(tmp_path):
     assert info.error and "exploded" in info.error
 
 
+def test_ffprobe_refusing_a_file_gives_its_own_reason(tmp_path):
+    """Not the whole command line it was run with, which buries the reason."""
+    import subprocess
+
+    path = tmp_path / "clip.mp4"
+    path.write_bytes(b"x")
+
+    def refuse(args):
+        raise subprocess.CalledProcessError(
+            1, ["ffprobe", *args],
+            stderr=f"[mov @ 0x1] moov atom not found\n{path}: Invalid data found when processing input\n",
+        )
+
+    info = probe_media(path, runner=refuse)
+
+    assert info.error == "Invalid data found when processing input"
+
+
 def test_a_missing_file_is_reported(tmp_path):
     info = probe_media(tmp_path / "gone.mp4", runner=_runner(SAMPLE))
 

@@ -83,6 +83,16 @@ vidkit also handles video already on your machine:
   legal in the target container it repackages rather than re-encodes: under a
   tenth of a second, and the video is untouched. It says which it is about to
   do before starting.
+
+  Give it a folder instead of a file and every video in it is converted to
+  the one format you pick, as a single job with one progress bar. Answer yes
+  to "include subfolders?" and the tree is mirrored into the output folder,
+  so `trip/day1/clip.mov` becomes `converted/trip/day1/clip.mp4`. Before
+  anything starts it lists the files it is leaving alone and why: already in
+  that format, already converted by an earlier run, or unreadable. The
+  output folder is never scanned, so running it twice converts nothing
+  twice. If some of the videos would not play on a Mac once copied across,
+  it asks once whether to re-encode them, and only those are re-encoded.
 - **Compress to a target size** — name a size and it works the bitrate out
   from the duration. This one deliberately uses software encoding: Apple's
   hardware encoder is faster but honours a bitrate target loosely, producing

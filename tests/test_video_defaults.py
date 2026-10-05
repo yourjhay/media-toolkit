@@ -58,6 +58,8 @@ DEFAULTS = _confirm_defaults()
     ("Download ?", True),
     ("Go ahead?", True),
     ("Fast cut? (instant, but snaps to the nearest keyframe)", True),
+    ("Include subfolders?", False),
+    ("Convert ?", True),
 ])
 def test_pressing_enter_gives_the_expected_answer(question, expected):
     assert question in DEFAULTS, f"no confirm asks {question!r}; found {sorted(DEFAULTS)}"

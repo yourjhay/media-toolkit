@@ -60,6 +60,11 @@ def probe_media(path: Path, runner: Callable[[list[str]], str] | None = None) ->
             "-show_format", "-show_streams", str(path),
         ])
         data = json.loads(raw)
+    except subprocess.CalledProcessError as exc:
+        # ffprobe's last word is the reason, prefixed with the path it was given.
+        lines = (exc.stderr or "").strip().splitlines()
+        info.error = lines[-1].removeprefix(f"{path}: ") if lines else f"ffprobe exited with {exc.returncode}"
+        return info
     except Exception as exc:
         info.error = f"{type(exc).__name__}: {exc}"
         return info
