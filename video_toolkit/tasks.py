@@ -18,7 +18,9 @@ from .operations import (
     EncodeResult,
     build_compress_args,
     build_convert_args,
+    build_mute_args,
     build_trim_args,
+    muted_name,
     run_ffmpeg,
 )
 from .timecode import format_timecode, validate_range
@@ -213,3 +215,37 @@ def trim_video(
                 f"Turn off the fast cut for an exact one."
             )
     return result
+
+
+def mute_video(
+    src: Path,
+    dest_dir: Path,
+    overwrite: bool = False,
+    on_progress: Callable | None = None,
+    probe: Callable | None = None,
+    runner: Callable | None = None,
+    on_start: Callable | None = None,
+    progress_to: str | None = None,
+) -> EncodeResult:
+    """Drop the sound, leaving the picture exactly as it was."""
+    src, dest_dir = Path(src), Path(dest_dir)
+    out = dest_dir / muted_name(src)
+
+    blocked = _guard(src, out, overwrite)
+    if blocked is not None:
+        return blocked
+
+    info = (probe or probe_media)(src)
+    if info.error:
+        return EncodeResult(src, None, FAILED, src.stat().st_size, 0, info.error)
+    if info.audio_codec is None:
+        return EncodeResult(src, None, SKIPPED, src.stat().st_size, 0,
+                            "it has no sound to remove")
+
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    ok, message = run_ffmpeg(
+        build_mute_args(src, out, progress_to=progress_to or "pipe:1"),
+        info.duration, on_progress, runner, on_start,
+    )
+    return _finish(src, out, ok, message,
+                   "sound removed, the picture copied untouched", lossless=True)

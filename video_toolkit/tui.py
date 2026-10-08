@@ -44,7 +44,14 @@ from shared.prompts import ask_path as _shared_ask_path
 from shared.prompts import pause as _pause
 from shared.settings import recall_path, remember_path
 
-from .batch import BatchResult, estimated_seconds, find_videos, plan_batch, run_batch
+from .batch import (
+    BatchResult,
+    estimated_seconds,
+    find_videos,
+    plan_batch,
+    plan_mute_batch,
+    run_batch,
+)
 from .containers import playback_warning, plan_conversion, supported_targets
 from .download import OK as DOWNLOAD_OK
 from .download import download, ffmpeg_available, probe
@@ -53,7 +60,7 @@ from .media import MediaInfo, probe_media, read_progress_file
 from .operations import FAILED as ENCODE_FAILED
 from .operations import OK as ENCODE_OK
 from .operations import OVER, SKIPPED
-from .tasks import compress_video, convert_video, trim_video
+from .tasks import compress_video, convert_video, mute_video, trim_video
 from .speed import describe_wait, estimate_encode_seconds, is_slow
 from .timecode import format_timecode, parse_timecode
 from .formats import AUDIO, MP3, VIDEO, quality_warning, readable_formats
@@ -344,9 +351,10 @@ def _local_round(operation: str, ffmpeg: bool) -> bool:
         _pause()
         return True
 
-    source = _ask_media_file(allow_folder=operation == "convert")
+    folder_rounds = {"convert": _convert_folder_round, "mute": _mute_folder_round}
+    source = _ask_media_file(allow_folder=operation in folder_rounds)
     if isinstance(source, Path):
-        return _convert_folder_round(source)
+        return folder_rounds[operation](source)
     info = source
     console.print(_media_panel(info))
 
@@ -380,6 +388,16 @@ def _local_round(operation: str, ffmpeg: bool) -> bool:
         settings = {"target_bytes": target_bytes}
         estimated = estimate_encode_seconds(info.duration, "libx264", _pixels(info))
 
+    elif operation == "mute":
+        if info.audio_codec is None:
+            console.print("  [yellow]It has no sound to remove.[/yellow]\n")
+            _pause()
+            return True
+        console.print("  [green]Copy without the sound — instant, and the picture is untouched.[/green]\n")
+        describe = "Removing the sound"
+        settings = {}
+        estimated = 1.0
+
     else:
         start, end, precise = _ask_trim_range(info)
         describe = "Trimming"
@@ -395,7 +413,8 @@ def _local_round(operation: str, ffmpeg: bool) -> bool:
         console.print("[dim]Cancelled.[/dim]\n")
         return True
 
-    runners = {"convert": convert_video, "compress": compress_video, "trim": trim_video}
+    runners = {"convert": convert_video, "compress": compress_video, "trim": trim_video,
+               "mute": mute_video}
 
     def work(report):
         return _tracked(
@@ -468,7 +487,7 @@ def _list_unconverted(results, root: Path) -> None:
             console.print(f"  [red]·[/red] {_shown(result.source, root)}: [dim]{result.detail}[/dim]")
 
 
-def _folder_panel(root: Path, items, settled) -> Panel:
+def _folder_panel(root: Path, items, settled, lossless_as: str = "Repackage") -> Panel:
     table = Table(show_header=False, box=None, padding=(0, 2))
     table.add_row("Folder", f"[bold]{root.name or root}[/bold]")
     table.add_row("Videos", str(len(items) + len(settled)))
@@ -476,7 +495,7 @@ def _folder_panel(root: Path, items, settled) -> Panel:
         table.add_row("Size", human_bytes(sum(item.info.size_bytes for item in items)))
     repackage = sum(1 for item in items if item.lossless)
     if repackage:
-        table.add_row("Repackage", f"[green]{repackage}[/green]  [dim]instant, video untouched[/dim]")
+        table.add_row(lossless_as, f"[green]{repackage}[/green]  [dim]instant, video untouched[/dim]")
     if len(items) > repackage:
         table.add_row("Re-encode", f"[yellow]{len(items) - repackage}[/yellow]")
     if settled:
@@ -485,8 +504,8 @@ def _folder_panel(root: Path, items, settled) -> Panel:
     return Panel(table, title="Source", border_style=ACCENT, title_align="left")
 
 
-def _convert_folder_round(root: Path) -> bool:
-    """Convert every video in a folder to the one format asked for."""
+def _ask_subfolders(root: Path) -> bool | None:
+    """Whether to look in subfolders too. None when there are no videos at all."""
     recursive = False
     if any(path.is_dir() and not path.name.startswith(".") for path in root.iterdir()):
         recursive = _ask(questionary.confirm("Include subfolders?", default=False, style=STYLE))
@@ -495,14 +514,52 @@ def _convert_folder_round(root: Path) -> bool:
     if not find_videos(root, recursive):
         console.print("[yellow]No videos found there.[/yellow]\n")
         _pause()
+        return None
+    return recursive
+
+
+def _read_folder(root: Path, recursive: bool, dest_dir: Path) -> list[MediaInfo]:
+    files = find_videos(root, recursive, exclude=[dest_dir])
+    with console.status(f"[dim]Reading {download_noun(VIDEO, len(files))}…[/dim]", spinner="dots"):
+        return [probe_media(path) for path in files]
+
+
+def _show_folder_plan(root: Path, items, settled, nothing_to_do: str, **panel) -> bool:
+    """What will and will not be done. False, having said so, if nothing will."""
+    console.print(_folder_panel(root, items, settled, **panel))
+    _list_unconverted(settled, root)
+    console.print()
+
+    if not items:
+        console.print(f"  [yellow]{nothing_to_do}[/yellow]\n")
+        _pause()
+        return False
+    return True
+
+
+def _report_folder(batch: BatchResult, ran: int, root: Path, done: str) -> None:
+    finished = batch.of_status(ENCODE_OK)
+    if finished:
+        console.print(f"\n  [green]{done} {download_noun(VIDEO, len(finished))}[/green]  "
+                      f"{human_bytes(batch.source_bytes)} → {human_bytes(batch.output_bytes)}")
+        console.print(f"  [bold]{batch.output}[/bold]")
+    else:
+        console.print(f"\n  [yellow]Nothing was {done.lower()}.[/yellow]")
+    # Only this run's own; the files left alone were listed before it began.
+    _list_unconverted(batch.results[:ran], root)
+    console.print()
+    _pause()
+
+
+def _convert_folder_round(root: Path) -> bool:
+    """Convert every video in a folder to the one format asked for."""
+    recursive = _ask_subfolders(root)
+    if recursive is None:
         return True
 
     target = _ask_convert_target()
     dest_dir = _ask_dest(LOCAL_DEST, root / "converted")
-
-    files = find_videos(root, recursive, exclude=[dest_dir])
-    with console.status(f"[dim]Reading {download_noun(VIDEO, len(files))}…[/dim]", spinner="dots"):
-        infos = [probe_media(path) for path in files]
+    infos = _read_folder(root, recursive, dest_dir)
 
     # Asked once for the folder, and applied only to the files it concerns.
     awkward = [info for info in infos if not info.error and playback_warning(info.video_codec, target)]
@@ -517,13 +574,7 @@ def _convert_folder_round(root: Path) -> bool:
         force = _ask_reencode_for_playback()
 
     items, settled = plan_batch(infos, root, dest_dir, target, force_awkward=force)
-    console.print(_folder_panel(root, items, settled))
-    _list_unconverted(settled, root)
-    console.print()
-
-    if not items:
-        console.print("  [yellow]Nothing there needs converting.[/yellow]\n")
-        _pause()
+    if not _show_folder_plan(root, items, settled, "Nothing there needs converting."):
         return True
 
     count = download_noun(VIDEO, len(items))
@@ -547,17 +598,45 @@ def _convert_folder_round(root: Path) -> bool:
     if batch is None:
         return True  # running behind us; Jobs has it from here
 
-    converted = batch.of_status(ENCODE_OK)
-    if converted:
-        console.print(f"\n  [green]Converted {download_noun(VIDEO, len(converted))}[/green]  "
-                      f"{human_bytes(batch.source_bytes)} → {human_bytes(batch.output_bytes)}")
-        console.print(f"  [bold]{batch.output}[/bold]")
-    else:
-        console.print("\n  [yellow]Nothing was converted.[/yellow]")
-    # Only this run's own; the files left alone were listed before it began.
-    _list_unconverted(batch.results[:len(items)], root)
-    console.print()
-    _pause()
+    _report_folder(batch, len(items), root, "Converted")
+    return True
+
+
+def _mute_folder_round(root: Path) -> bool:
+    """Take the sound out of every video in a folder."""
+    recursive = _ask_subfolders(root)
+    if recursive is None:
+        return True
+
+    dest_dir = _ask_dest(LOCAL_DEST, root / "converted")
+    infos = _read_folder(root, recursive, dest_dir)
+
+    items, settled = plan_mute_batch(infos, root, dest_dir)
+    if not _show_folder_plan(root, items, settled, "Nothing there has sound to remove.",
+                             lossless_as="Mute"):
+        return True
+
+    count = download_noun(VIDEO, len(items))
+    if not _ask(questionary.confirm(f"Mute {count}?", default=True, style=STYLE)):
+        console.print("[dim]Cancelled.[/dim]\n")
+        return True
+
+    def mute_one(item, report):
+        return _tracked(
+            partial(mute_video, item.info.path, item.dest_dir,
+                    probe=lambda _path: item.info),   # read a moment ago
+            f"Muting {item.info.path.name}",
+            item.dest_dir, item.info.duration, report,
+        )
+
+    def work(report):
+        return BatchResult(run_batch(items, mute_one, report) + settled, dest_dir)
+
+    batch = _maybe_background(f"Muting {count}", work, estimated_seconds(items))
+    if batch is None:
+        return True  # running behind us; Jobs has it from here
+
+    _report_folder(batch, len(items), root, "Muted")
     return True
 
 

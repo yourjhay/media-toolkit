@@ -1,7 +1,7 @@
-"""Converting every video in a folder to one format.
+"""Converting or muting every video in a folder.
 
-The single-file conversion does the real work; this only finds the files,
-decides up front which of them are worth converting, and runs them one after
+The single-file operation does the real work; this only finds the files,
+decides up front which of them are worth doing, and runs them one after
 another as a single job with a single progress figure.
 """
 
@@ -13,7 +13,7 @@ from typing import Callable
 
 from .containers import playback_warning, plan_conversion
 from .media import MediaInfo
-from .operations import FAILED, OK, SKIPPED, EncodeResult
+from .operations import FAILED, OK, SKIPPED, EncodeResult, muted_name
 from .planning import VIDEO_SUFFIXES
 from .speed import estimate_encode_seconds
 
@@ -80,6 +80,19 @@ def _settled(info: MediaInfo, status: str, detail: str) -> EncodeResult:
     return EncodeResult(info.path, None, status, info.size_bytes, 0, detail)
 
 
+def _taken(out: Path, claimed: set[str]) -> str | None:
+    """Why `out` cannot be written this run, or None once it is claimed."""
+    # Compared case-insensitively: macOS treats Clip.mp4 and clip.mp4 as one.
+    if str(out).lower() in claimed:
+        return f"another file here also becomes {out.name}"
+    claimed.add(str(out).lower())
+    # Caught here as well as at run time, so the count asked about before
+    # starting is the number that will actually be done.
+    if out.exists():
+        return f"{out.name} is already in the output folder"
+    return None
+
+
 def plan_batch(
     infos: list[MediaInfo],
     root: Path,
@@ -118,16 +131,9 @@ def plan_batch(
             continue
 
         dest = mirrored_dest(info.path, root, dest_dir)
-        out = dest / f"{info.path.stem}.{target}"
-        # Compared case-insensitively: macOS treats Clip.mp4 and clip.mp4 as one.
-        if str(out).lower() in claimed:
-            settled.append(_settled(info, SKIPPED, f"another file here also becomes {out.name}"))
-            continue
-        claimed.add(str(out).lower())
-        # Caught here as well as at conversion time, so the count asked about
-        # before starting is the number that will actually be converted.
-        if out.exists():
-            settled.append(_settled(info, SKIPPED, f"{out.name} is already in the output folder"))
+        reason = _taken(dest / f"{info.path.stem}.{target}", claimed)
+        if reason:
+            settled.append(_settled(info, SKIPPED, reason))
             continue
 
         if plan.video_lossless:
@@ -137,6 +143,36 @@ def plan_batch(
             estimate = estimate_encode_seconds(info.duration, plan.video_encoder, pixels)
 
         items.append(BatchItem(info, dest, plan.lossless, estimate, force))
+
+    return items, settled
+
+
+def plan_mute_batch(
+    infos: list[MediaInfo],
+    root: Path,
+    dest_dir: Path,
+) -> tuple[list[BatchItem], list[EncodeResult]]:
+    """Which files to take the sound out of, and the results already known."""
+    items: list[BatchItem] = []
+    settled: list[EncodeResult] = []
+    claimed: set[str] = set()
+
+    for info in infos:
+        if info.error:
+            settled.append(_settled(info, FAILED, info.error))
+            continue
+        if info.audio_codec is None:
+            settled.append(_settled(info, SKIPPED, "no sound to remove"))
+            continue
+
+        dest = mirrored_dest(info.path, root, dest_dir)
+        reason = _taken(dest / muted_name(info.path), claimed)
+        if reason:
+            settled.append(_settled(info, SKIPPED, reason))
+            continue
+
+        # Every stream is copied, so each one is as quick as a repackage.
+        items.append(BatchItem(info, dest, lossless=True, estimate=_REPACKAGE_SECONDS))
 
     return items, settled
 

@@ -40,7 +40,7 @@ def test_local_operations_are_marked_as_working_on_files():
     from video_toolkit.planning import LOCAL, OPERATIONS
 
     assert LOCAL <= set(OPERATIONS)
-    assert {"convert", "compress", "trim"} == set(LOCAL)
+    assert {"convert", "compress", "trim", "mute"} == set(LOCAL)
 
 
 def test_link_operations_and_file_operations_do_not_overlap():

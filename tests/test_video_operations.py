@@ -6,6 +6,7 @@ from video_toolkit.containers import plan_conversion
 from video_toolkit.operations import (
     build_compress_args,
     build_convert_args,
+    build_mute_args,
     build_trim_args,
 )
 
@@ -178,3 +179,25 @@ def test_an_unknown_bitrate_leaves_the_encoder_to_choose():
                               video_bitrate=None)
 
     assert "-b:v" not in args
+
+
+# --- mute ------------------------------------------------------------------
+
+def test_muting_drops_the_sound():
+    args = build_mute_args(SRC, OUT)
+
+    assert "-an" in args
+
+
+def test_muting_copies_the_picture_rather_than_re_encoding_it():
+    args = build_mute_args(SRC, OUT)
+
+    assert _pairs(args)["-c"] == "copy"
+    assert "-c:v" not in args
+
+
+def test_a_muted_mp4_is_still_made_streamable():
+    args = build_mute_args(SRC, OUT)
+
+    assert "+faststart" in " ".join(args)
+    assert args[-1] == str(OUT)

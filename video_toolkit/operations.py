@@ -111,6 +111,18 @@ def build_trim_args(
     return _finish(args, out)
 
 
+def muted_name(src: Path) -> str:
+    """What a muted copy is called. Kept beside its source, it must not clash."""
+    return f"{src.stem}-muted{src.suffix}"
+
+
+def build_mute_args(src: Path, out: Path, progress_to: str = "pipe:1") -> list[str]:
+    # Everything else is copied, so nothing is decoded and the picture is
+    # exactly what it was. Only the sound is left behind.
+    args = _base(src, progress_to) + ["-c", "copy", "-an"]
+    return _finish(args, out)
+
+
 @dataclass
 class EncodeResult:
     source: Path

@@ -4,7 +4,7 @@ import pytest
 
 from video_toolkit.media import MediaInfo
 from video_toolkit.operations import FAILED, OK, OVER, SKIPPED
-from video_toolkit.tasks import compress_video, convert_video, trim_video
+from video_toolkit.tasks import compress_video, convert_video, mute_video, trim_video
 
 
 def _info(tmp_path, **over):
@@ -200,3 +200,54 @@ def test_a_start_past_the_end_of_the_clip_is_refused(source, tmp_path):
                         probe=lambda p: _info(tmp_path), runner=_runner())
 
     assert result.status == FAILED
+
+
+# --- mute ------------------------------------------------------------------
+
+def test_muting_writes_a_copy_beside_the_original_name(source, tmp_path):
+    result = mute_video(source, tmp_path / "out",
+                        probe=lambda p: _info(tmp_path), runner=_runner())
+
+    assert result.status == OK
+    assert result.output.name == "clip-muted.mkv"
+    assert result.output.exists()
+
+
+def test_muting_is_reported_as_lossless(source, tmp_path):
+    result = mute_video(source, tmp_path / "out",
+                        probe=lambda p: _info(tmp_path), runner=_runner())
+
+    assert result.lossless
+    assert "untouched" in result.detail
+
+
+def test_a_clip_with_no_sound_is_left_alone(source, tmp_path):
+    run = _runner()
+
+    result = mute_video(source, tmp_path / "out",
+                        probe=lambda p: _info(tmp_path, audio_codec=None), runner=run)
+
+    assert result.status == SKIPPED
+    assert "no sound" in result.detail
+    assert "args" not in run.captured, "nothing should have been run"
+
+
+def test_a_failed_mute_is_reported_not_raised(source, tmp_path):
+    result = mute_video(source, tmp_path / "out",
+                        probe=lambda p: _info(tmp_path),
+                        runner=_runner(ok=False, message="Invalid data"))
+
+    assert result.status == FAILED
+    assert "Invalid data" in result.detail
+
+
+def test_an_earlier_mute_is_left_alone(source, tmp_path):
+    original = source.read_bytes()
+    (tmp_path / "clip-muted.mkv").write_bytes(b"keep me")
+
+    result = mute_video(source, tmp_path,
+                        probe=lambda p: _info(tmp_path), runner=_runner())
+
+    assert result.status == SKIPPED
+    assert source.read_bytes() == original
+    assert (tmp_path / "clip-muted.mkv").read_bytes() == b"keep me"

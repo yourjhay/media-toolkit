@@ -9,6 +9,7 @@ from video_toolkit.batch import (
     find_videos,
     mirrored_dest,
     plan_batch,
+    plan_mute_batch,
     run_batch,
 )
 from video_toolkit.media import MediaInfo
@@ -190,6 +191,70 @@ def test_one_unknown_length_makes_the_whole_wait_unknown(tmp_path):
     items, _ = plan_batch(infos, tmp_path, tmp_path / "out", "mp4")
 
     assert estimated_seconds(items) is None
+
+
+# --- muting a folder -------------------------------------------------------
+
+def test_every_video_with_sound_is_muted(tmp_path):
+    infos = [_info(tmp_path / "a.mov"), _info(tmp_path / "b.mp4")]
+
+    items, settled = plan_mute_batch(infos, tmp_path, tmp_path / "out")
+
+    assert [i.info.path.name for i in items] == ["a.mov", "b.mp4"]
+    assert all(item.lossless for item in items)
+    assert settled == []
+
+
+def test_a_silent_video_is_left_alone_and_says_why(tmp_path):
+    infos = [_info(tmp_path / "loud.mov"), _info(tmp_path / "quiet.mov", audio_codec=None)]
+
+    items, settled = plan_mute_batch(infos, tmp_path, tmp_path / "out")
+
+    assert [i.info.path.name for i in items] == ["loud.mov"]
+    assert settled[0].status == SKIPPED
+    assert "no sound" in settled[0].detail
+
+
+def test_an_unreadable_file_is_not_muted(tmp_path):
+    items, settled = plan_mute_batch([_info(tmp_path / "bad.mov", error="moov atom not found")],
+                                     tmp_path, tmp_path / "out")
+
+    assert items == []
+    assert settled[0].status == FAILED
+
+
+def test_a_file_muted_by_an_earlier_run_is_not_counted_again(tmp_path, touch):
+    touch("out/clip-muted.mov")
+
+    items, settled = plan_mute_batch([_info(tmp_path / "clip.mov")], tmp_path, tmp_path / "out")
+
+    assert items == []
+    assert "already in the output folder" in settled[0].detail
+
+
+def test_names_differing_only_in_case_are_not_both_muted(tmp_path):
+    """macOS treats Clip-muted.mov and clip-muted.mov as the same file."""
+    infos = [_info(tmp_path / "Clip.mov"), _info(tmp_path / "clip.mov")]
+
+    items, settled = plan_mute_batch(infos, tmp_path, tmp_path / "out")
+
+    assert len(items) == 1
+    assert settled[0].status == SKIPPED
+
+
+def test_muting_keeps_the_subfolders(tmp_path):
+    infos = [_info(tmp_path / "a" / "clip.mov"), _info(tmp_path / "b" / "clip.mov")]
+
+    items, _ = plan_mute_batch(infos, tmp_path, tmp_path / "out")
+
+    assert [i.dest_dir for i in items] == [tmp_path / "out" / "a", tmp_path / "out" / "b"]
+
+
+def test_a_folder_of_mutes_is_estimated_as_near_instant(tmp_path):
+    items, _ = plan_mute_batch([_info(tmp_path / f"{n}.mov") for n in range(3)],
+                               tmp_path, tmp_path / "out")
+
+    assert estimated_seconds(items) <= 3.0
 
 
 # --- running them ----------------------------------------------------------

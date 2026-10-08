@@ -102,6 +102,14 @@ vidkit also handles video already on your machine:
   make a five second cut come out at ten, so the tool measures what it
   actually produced and tells you, rather than repeating what you asked for.
   Turn the fast cut off for an exact one.
+- **Mute** — takes the sound out and copies the picture across untouched,
+  so it is instant and nothing is re-encoded. `clip.mov` becomes
+  `clip-muted.mov`. Give it a folder and every video in it is muted in one
+  job, subfolders mirrored the same way Convert does; videos with no sound
+  are listed and left alone. The file shrinks by exactly what the sound
+  took up: about 2% on a high-bitrate phone clip, closer to 15–20% on a
+  low-bitrate screen recording. To make a file much smaller, Compress is
+  the tool.
 
 ### ffmpeg
 

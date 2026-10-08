@@ -25,6 +25,7 @@ OPERATIONS: dict[str, str] = {
     "convert": "Change a video's format",
     "compress": "Compress a video to a target size",
     "trim": "Keep only part of a video",
+    "mute": "Take the sound out of a video",
     "jobs": "Watch what is running in the background",
 }
 
@@ -32,7 +33,7 @@ OPERATIONS: dict[str, str] = {
 READ_ONLY = frozenset({"formats", "jobs"})
 
 # Work on a file already on this machine, rather than on a link.
-LOCAL = frozenset({"convert", "compress", "trim"})
+LOCAL = frozenset({"convert", "compress", "trim", "mute"})
 
 VIDEO_SUFFIXES = {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi", ".flv", ".wmv", ".mpg", ".mpeg"}
 
@@ -68,6 +69,7 @@ def menu_items(jobs_summary: str = "") -> list[MenuItem]:
         MenuItem("convert", "Convert", "change the container", "#f0a02a"),
         MenuItem("compress", "Compress", "hit a target size", "#7ee787"),
         MenuItem("trim", "Trim", "keep part of a clip", "#ff8fa3"),
+        MenuItem("mute", "Mute", "strip the sound", "#79c0ff"),
         MenuItem("jobs", "Jobs", jobs_summary or "nothing running", "#ffd166"),
         MenuItem(QUIT, "Quit", "leave the toolkit", "#8b949e"),
     ]
