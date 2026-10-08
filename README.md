@@ -111,6 +111,22 @@ vidkit also handles video already on your machine:
   low-bitrate screen recording. To make a file much smaller, Compress is
   the tool.
 
+### From scripts and AI agents
+
+Everything above also runs without the menu, as a single command:
+
+```
+vidkit mute ~/Movies/clips --recursive
+vidkit compress clip.mov --size 25MB --json
+vidkit download "https://youtu.be/…" --quality 1080
+```
+
+Nothing is asked, `--json` prints a report a program can read, and the exit
+code says whether it worked. `vidkit --help` lists the commands. With no
+command, in a terminal, you get the menu as before.
+[docs/agents.md](docs/agents.md) is the guide for AI agents, including what to
+put in a `CLAUDE.md` or `AGENTS.md` so an agent reaches for vidkit on its own.
+
 ### ffmpeg
 
 Most sites serve anything above about 720p as **separate video and audio

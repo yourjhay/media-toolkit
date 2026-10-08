@@ -230,6 +230,7 @@ def test_a_file_muted_by_an_earlier_run_is_not_counted_again(tmp_path, touch):
 
     assert items == []
     assert "already in the output folder" in settled[0].detail
+    assert settled[0].output == tmp_path / "out" / "clip-muted.mov", "so a re-run can find it"
 
 
 def test_names_differing_only_in_case_are_not_both_muted(tmp_path):

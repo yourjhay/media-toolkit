@@ -80,16 +80,18 @@ def _settled(info: MediaInfo, status: str, detail: str) -> EncodeResult:
     return EncodeResult(info.path, None, status, info.size_bytes, 0, detail)
 
 
-def _taken(out: Path, claimed: set[str]) -> str | None:
-    """Why `out` cannot be written this run, or None once it is claimed."""
+def _taken(info: MediaInfo, out: Path, claimed: set[str]) -> EncodeResult | None:
+    """A skip if `out` cannot be written this run; otherwise None, and it is claimed."""
     # Compared case-insensitively: macOS treats Clip.mp4 and clip.mp4 as one.
     if str(out).lower() in claimed:
-        return f"another file here also becomes {out.name}"
+        return _settled(info, SKIPPED, f"another file here also becomes {out.name}")
     claimed.add(str(out).lower())
     # Caught here as well as at run time, so the count asked about before
-    # starting is the number that will actually be done.
+    # starting is the number that will actually be done. The earlier output is
+    # named, so a script re-running the job can still find what it made.
     if out.exists():
-        return f"{out.name} is already in the output folder"
+        return EncodeResult(info.path, out, SKIPPED, info.size_bytes, out.stat().st_size,
+                            f"{out.name} is already in the output folder")
     return None
 
 
@@ -131,9 +133,9 @@ def plan_batch(
             continue
 
         dest = mirrored_dest(info.path, root, dest_dir)
-        reason = _taken(dest / f"{info.path.stem}.{target}", claimed)
-        if reason:
-            settled.append(_settled(info, SKIPPED, reason))
+        skip = _taken(info, dest / f"{info.path.stem}.{target}", claimed)
+        if skip:
+            settled.append(skip)
             continue
 
         if plan.video_lossless:
@@ -166,9 +168,9 @@ def plan_mute_batch(
             continue
 
         dest = mirrored_dest(info.path, root, dest_dir)
-        reason = _taken(dest / muted_name(info.path), claimed)
-        if reason:
-            settled.append(_settled(info, SKIPPED, reason))
+        skip = _taken(info, dest / muted_name(info.path), claimed)
+        if skip:
+            settled.append(skip)
             continue
 
         # Every stream is copied, so each one is as quick as a repackage.
