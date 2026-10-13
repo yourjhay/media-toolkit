@@ -172,6 +172,42 @@ or gone rather than that something is broken.
 
 ## Install
 
+On macOS or Linux, one line:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yourjhay/media-toolkit/main/install.sh | sh
+```
+
+It installs whatever is missing out of git, Python 3.10+, ffmpeg and the
+cairo library, using Homebrew on a Mac (installing Homebrew first if need be)
+or apt, dnf, pacman, zypper or apk on Linux. Packages already there are left
+alone, and Linux asks for your `sudo` password only when something is missing.
+The toolkit goes into `~/.local/share/media-toolkit`, `imgkit` and `vidkit`
+are linked into `~/.local/bin`, and that folder is added to your shell profile
+if it is not already on your PATH. Open a new terminal afterwards.
+
+Run the same line again to update.
+
+Options go after `sh -s --`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yourjhay/media-toolkit/main/install.sh | sh -s -- --no-deps
+```
+
+```
+--dir DIR           where the toolkit goes
+--bin-dir DIR       where imgkit and vidkit are linked
+--repo URL          clone from somewhere else, such as a fork
+--no-deps           install no system packages; use what is already there
+--no-modify-path    leave your shell profile alone
+```
+
+ffmpeg is not in the default repositories of RHEL, Rocky or Alma Linux. There
+the installer says so and carries on; add RPM Fusion and install it yourself
+for vidkit.
+
+### By hand
+
 ```bash
 git clone https://github.com/yourjhay/media-toolkit.git
 cd media-toolkit
