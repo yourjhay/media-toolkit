@@ -1,4 +1,12 @@
-# media toolkit
+# Media Toolkit
+
+Install on macOS or Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/yourjhay/media-toolkit/main/install.sh | sh
+```
+
+Run it again to update. Options and what it installs: [Install](#install).
 
 ![imgkit — the image toolkit](docs/cover.png)
 
